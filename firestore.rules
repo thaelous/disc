@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Reglas para la plataforma DISC de evaluación corporativa
+    match /campanas/{campaignId} {
+      allow read, write: if true;
+    }
+    match /colaboradores/{collaboratorId} {
+      allow read, write: if true;
+    }
+    match /empresas/{companyId} {
+      allow read, write: if true;
+    }
+  }
+}

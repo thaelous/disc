@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Campaña corporativa de evaluación psicométrica DISC",
+      "type": "object",
+      "properties": {
+        "accessCode": { "type": "string", "description": "Código único de acceso, ej. DISC-2026-INNOVA" },
+        "title": { "type": "string", "description": "Título descriptivo de la campaña" },
+        "companyId": { "type": "string", "description": "ID de la empresa propietaria" },
+        "durationDays": { "type": "number", "description": "Duración de vigencia en días" },
+        "createdAt": { "type": "string", "description": "Fecha ISO de creación" },
+        "firstCompletedAt": { "type": "string", "description": "Fecha ISO del primer test completado que activa el conteo" },
+        "expiresAt": { "type": "string", "description": "Fecha ISO de vencimiento calculada" },
+        "targetParticipants": { "type": "number", "description": "Meta estimada de participantes" }
+      },
+      "required": ["accessCode", "title", "companyId", "durationDays", "createdAt"]
+    },
+    "Collaborator": {
+      "title": "Collaborator",
+      "description": "Colaborador participante en la evaluación DISC",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "description": "ID de la campaña asignada" },
+        "companyId": { "type": "string", "description": "ID de la empresa" },
+        "fullName": { "type": "string", "description": "Nombre completo del colaborador" },
+        "email": { "type": "string", "description": "Correo electrónico corporativo" },
+        "department": { "type": "string", "description": "Área o departamento funcional" },
+        "role": { "type": "string", "description": "Puesto o cargo" },
+        "status": { "type": "string", "description": "pending o completed", "enum": ["pending", "completed"] },
+        "createdAt": { "type": "string", "description": "Fecha ISO de registro" },
+        "completedAt": { "type": "string", "description": "Fecha ISO de culminación del test" }
+      },
+      "required": ["campaignId", "companyId", "fullName", "email", "department", "status"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Empresa cliente registrada",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Razón social" },
+        "rfc": { "type": "string", "description": "RFC o identificación fiscal" },
+        "contactPerson": { "type": "string", "description": "Nombre del contacto de RRHH" },
+        "email": { "type": "string", "description": "Correo de contacto" },
+        "phone": { "type": "string", "description": "Teléfono corporativo" },
+        "industry": { "type": "string", "description": "Giro o sector" },
+        "createdAt": { "type": "string", "description": "Fecha ISO de alta" }
+      },
+      "required": ["name", "rfc", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/campanas/{campaignId}": {
+      "schema": { "$ref": "#/entities/Campaign" },
+      "description": "Colección de campañas de evaluación"
+    },
+    "/colaboradores/{collaboratorId}": {
+      "schema": { "$ref": "#/entities/Collaborator" },
+      "description": "Colección de colaboradores evaluados y pendientes"
+    },
+    "/empresas/{companyId}": {
+      "schema": { "$ref": "#/entities/Company" },
+      "description": "Colección de empresas clientes"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "DISC Enterprise - Plataforma de Evaluación Psicométrica",
+  "description": "Plataforma empresarial para la aplicación, análisis y gestión de perfiles psicométricos DISC con cálculo de arquetipos conductuales y analítica organizacional.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
