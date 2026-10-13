@@ -65,6 +65,77 @@ export interface Campaign {
   targetParticipants: number;
 }
 
+export interface NaturalAdaptedScores {
+  dPercent: number;
+  iPercent: number;
+  sPercent: number;
+  cPercent: number;
+  dominantFactor: DISCFactor;
+}
+
+export interface NaturalAdaptedProfile {
+  natural: NaturalAdaptedScores;
+  adapted: NaturalAdaptedScores;
+  stressIndex: number; // 0 - 100%
+  stressLevel: 'Normal' | 'Moderado' | 'Alto Riesgo';
+  levelLabel: string;
+  executiveDiagnosis: string;
+  recommendation: string;
+}
+
+export interface JobBenchmark {
+  id: string;
+  title: string;
+  department: string;
+  targetD: number; // 0-100%
+  targetI: number;
+  targetS: number;
+  targetC: number;
+  description: string;
+  keyCompetencies: string[];
+}
+
+export interface JobFitGap {
+  factor: DISCFactor;
+  actualPercent: number;
+  benchmarkPercent: number;
+  difference: number;
+  status: 'Alineado' | 'Superior' | 'Por Desarrollar';
+  comment: string;
+}
+
+export interface JobFitResult {
+  benchmarkId: string;
+  benchmarkTitle: string;
+  fitPercentage: number; // 0 - 100%
+  fitLevel: 'Alto' | 'Medio' | 'Requiere Acompañamiento';
+  gaps: JobFitGap[];
+  summary: string;
+  recommendations: string[];
+}
+
+export interface LeadershipGuide {
+  dos: string[];
+  donts: string[];
+  communicationTips: string[];
+  motivationKeys: string[];
+}
+
+export interface TeamSynergyDyad {
+  collabAId: string;
+  collabBId: string;
+  collabAName: string;
+  collabBName: string;
+  collabADominant: DISCFactor;
+  collabBDominant: DISCFactor;
+  synergyScore: number; // 0 - 100%
+  allianceType: string;
+  allianceDescription: string;
+  frictionRisk: 'Bajo' | 'Moderado' | 'Alto';
+  frictionPoints: string[];
+  collaborationTips: string[];
+}
+
 export interface Collaborator {
   id: string;
   campaignId: string;
@@ -77,6 +148,10 @@ export interface Collaborator {
   completedAt?: string;
   scores?: DISCScores;
   archetype?: DISCArchetype;
+  benchmarkId?: string;
+  naturalAdapted?: NaturalAdaptedProfile;
+  jobFit?: JobFitResult;
 }
 
 export type ActiveView = 'landing' | 'company' | 'evaluator' | 'admin';
+

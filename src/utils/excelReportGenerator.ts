@@ -1,6 +1,8 @@
 import XLSX from 'xlsx-js-style';
 import { Company, Campaign, Collaborator, DISCFactor } from '../types';
 import { DISC_ARCHETYPES } from '../data/discQuestions';
+import { calculateNaturalVsAdapted } from '../data/stressAndSynergy';
+import { calculateJobFit } from '../data/jobFitBenchmarks';
 
 interface ExcelReportParams {
   company: Company;
@@ -243,7 +245,13 @@ export function exportExecutiveExcelReport({
     'Puntaje S',
     'Puntaje C',
     'Perfil Predominante',
-    'Código de Estilo',
+    'Perfil Natural',
+    'Perfil Adaptado',
+    'Índice de Desgaste (%)',
+    'Nivel de Tensión',
+    'Puesto / Benchmark Objetivo',
+    '% Job-Fit',
+    'Diagnóstico de Ajuste',
     'Fecha Finalización'
   ];
 
@@ -293,13 +301,58 @@ export function exportExecutiveExcelReport({
     setCell(wsMatrix, 9, row, scoreC, scoreStyleC);
 
     setCell(wsMatrix, 10, row, collab.archetype?.title || (isDone ? 'Calculado' : 'Pendiente'), baseStyle);
-    setCell(wsMatrix, 11, row, collab.scores?.dominantFactor ? `${collab.scores.dominantFactor}${collab.scores.secondaryFactor || ''}` : '—', centerStyle);
-    
+
+    // Dynamic Calculations: Natural vs Adaptado & Job-Fit
+    let naturalText = '—';
+    let adaptedText = '—';
+    let stressIndexText = '—';
+    let stressLevelText = '—';
+    let stressStyle: any = centerStyle;
+    let benchmarkTitle = '—';
+    let jobFitPercentText = '—';
+    let jobFitDiagText = '—';
+    let jobFitStyle: any = centerStyle;
+
+    if (isDone && collab.scores) {
+      const natAdap = calculateNaturalVsAdapted(collab.scores);
+      naturalText = `D:${natAdap.natural.dPercent}% I:${natAdap.natural.iPercent}% S:${natAdap.natural.sPercent}% C:${natAdap.natural.cPercent}% (${natAdap.natural.dominantFactor})`;
+      adaptedText = `D:${natAdap.adapted.dPercent}% I:${natAdap.adapted.iPercent}% S:${natAdap.adapted.sPercent}% C:${natAdap.adapted.cPercent}% (${natAdap.adapted.dominantFactor})`;
+      stressIndexText = `${natAdap.stressIndex}%`;
+      stressLevelText = natAdap.stressLevel;
+
+      const stressColor =
+        natAdap.stressLevel === 'Normal' ? '16A34A' : natAdap.stressLevel === 'Moderado' ? 'D97706' : 'DC2626';
+      stressStyle = {
+        ...centerStyle,
+        font: { name: 'Arial', sz: 10, bold: true, color: { rgb: stressColor } }
+      };
+
+      const jobFitRes = calculateJobFit(collab.scores, collab.benchmarkId || collab.role, collab.department);
+      benchmarkTitle = jobFitRes.benchmarkTitle;
+      jobFitPercentText = `${jobFitRes.fitPercentage}%`;
+      jobFitDiagText = `Ajuste ${jobFitRes.fitLevel}: ${jobFitRes.summary}`;
+
+      const fitColor =
+        jobFitRes.fitLevel === 'Alto' ? '16A34A' : jobFitRes.fitLevel === 'Medio' ? 'D97706' : 'DC2626';
+      jobFitStyle = {
+        ...centerStyle,
+        font: { name: 'Arial', sz: 10, bold: true, color: { rgb: fitColor } }
+      };
+    }
+
+    setCell(wsMatrix, 11, row, naturalText, baseStyle);
+    setCell(wsMatrix, 12, row, adaptedText, baseStyle);
+    setCell(wsMatrix, 13, row, stressIndexText, stressStyle);
+    setCell(wsMatrix, 14, row, stressLevelText, stressStyle);
+    setCell(wsMatrix, 15, row, benchmarkTitle, baseStyle);
+    setCell(wsMatrix, 16, row, jobFitPercentText, jobFitStyle);
+    setCell(wsMatrix, 17, row, jobFitDiagText, baseStyle);
+
     const dateFormatted = collab.completedAt ? new Date(collab.completedAt).toLocaleDateString('es-MX') : '—';
-    setCell(wsMatrix, 12, row, dateFormatted, centerStyle);
+    setCell(wsMatrix, 18, row, dateFormatted, centerStyle);
   });
 
-  wsMatrix['!ref'] = `A1:M${collaborators.length + 1}`;
+  wsMatrix['!ref'] = `A1:S${collaborators.length + 1}`;
   wsMatrix['!cols'] = [
     { wch: 6 },   // No.
     { wch: 28 },  // Nombre
@@ -311,12 +364,19 @@ export function exportExecutiveExcelReport({
     { wch: 12 },  // I
     { wch: 12 },  // S
     { wch: 12 },  // C
-    { wch: 28 },  // Perfil Predominante
-    { wch: 14 },  // Código
+    { wch: 26 },  // Perfil Predominante
+    { wch: 34 },  // Perfil Natural
+    { wch: 34 },  // Perfil Adaptado
+    { wch: 20 },  // Índice de Desgaste
+    { wch: 18 },  // Nivel de Tensión
+    { wch: 32 },  // Puesto / Benchmark Objetivo
+    { wch: 14 },  // % Job-Fit
+    { wch: 45 },  // Diagnóstico de Ajuste
     { wch: 16 }   // Fecha
   ];
 
   XLSX.utils.book_append_sheet(wb, wsMatrix, 'Matriz de Colaboradores');
+
 
   // ==========================================
   // PESTAÑA 3: DICCIONARIO DE PERFILES DISC

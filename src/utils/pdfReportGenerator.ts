@@ -1,6 +1,9 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Company, Campaign, Collaborator, DISCFactor } from '../types';
+import { calculateNaturalVsAdapted, generateTeamSynergySummary } from '../data/stressAndSynergy';
+import { calculateJobFit, detectBenchmarkFromRole } from '../data/jobFitBenchmarks';
+import { getLeadershipGuide } from '../data/managerLeadershipGuides';
 
 interface GeneralPdfParams {
   company: Company;
@@ -49,8 +52,8 @@ async function loadLogoBase64(): Promise<string | null> {
 
 /**
  * 1. REPORTE GENERAL CONSOLIDADO Y COMPLETO EN PDF (Doble Nivel en un solo documento)
- * Sección 1: Reporte Ejecutivo General de Campaña (Portada, Radiografía Conductual, Diagnóstico Estratégico Grupal, Matriz)
- * Sección 2: Fichas Técnicas Individuales (Página completa exhaustiva por cada colaborador evaluado)
+ * Sección 1: Reporte Ejecutivo General de Campaña (Portada, Radiografía Conductual, Diagnóstico Estratégico Grupal, Mapa de Sinergia y Matriz)
+ * Sección 2: Fichas Técnicas Individuales (Páginas completas con Natural vs Adaptado, Job-Fit y Manual DOs & DON'Ts)
  */
 export async function exportExecutiveGeneralPdfReport({
   company,
@@ -128,7 +131,7 @@ export async function exportExecutiveGeneralPdfReport({
     const titleX = logoBase64 ? margin + 24 : margin;
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setTextColor(255, 255, 255);
     doc.text(title, titleX, 11);
 
@@ -138,204 +141,192 @@ export async function exportExecutiveGeneralPdfReport({
     doc.text(subtitle, titleX, 18);
   };
 
-  // Helper para dibujar pie de página institucional
-  const drawPageFooter = (pageNum: number, totalPages: number) => {
-    doc.setDrawColor(226, 232, 240); // Slate 200
+  // Helper para dibujar pie de página
+  const drawPageFooter = (pageNum: number, total: number) => {
+    doc.setDrawColor(226, 232, 240);
     doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139); // Slate 500
-    doc.text(`DISC Enterprise · ${company.name} · Documento Oficial Confidencial`, margin, pageHeight - 7);
-    doc.text(`Página ${pageNum} de ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+    doc.setTextColor(100, 116, 139);
+    doc.text(`DISC Enterprise · ${company.name} · Campaña: ${campaign.accessCode}`, margin, pageHeight - 7);
+    doc.text(`Página ${pageNum} de ${total}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
   };
 
+  const nowFormatted = new Date().toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
   // =========================================================================
-  // HOJA 1: PORTADA EJECUTIVA Y RADIOGRAFÍA CONDUCTUAL DEL EQUIPO
+  // HOJA 1: PORTADA Y RADIOGRAFÍA CONDUCTUAL DEL EQUIPO
   // =========================================================================
   drawPageHeader(
-    'INFORME EJECUTIVO DE TALENTO CONDUCTUAL DISC',
-    `Evaluación Directiva · Campaña: ${campaign.accessCode}`
+    'INFORME EJECUTIVO DIRECTIVO DE EVALUACIÓN DISC',
+    `Radiografía de Talento Organizacional · ${company.name} · Campaña ${campaign.accessCode}`
   );
 
   let currentY = 30;
 
-  // Tarjeta de Metadatos y Ficha Corporativa
+  // 1. Tarjeta Resumen de Campaña & Portada Corporativa
   doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(margin, currentY, contentWidth, 24, 2, 2, 'FD');
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, currentY, contentWidth, 32, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
-  doc.text('EMPRESA CLIENTE:', margin + 4, currentY + 6);
+  doc.text('DATOS GENERALES DE LA EVALUACIÓN', margin + 4, currentY + 7);
+
   doc.setFont('helvetica', 'normal');
-  doc.text(`${company.name} (RFC: ${company.rfc})`, margin + 38, currentY + 6);
+  doc.setFontSize(8);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Empresa Cliente: ${company.name}   ·   RFC: ${company.rfc}`, margin + 4, currentY + 14);
+  doc.text(`Código de Campaña: ${campaign.accessCode}   ·   Título: ${campaign.title}`, margin + 4, currentY + 20);
+  doc.text(`Fecha de Emisión: ${nowFormatted}   ·   Periodo Vigencia: ${campaign.durationDays} días`, margin + 4, currentY + 26);
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('CAMPAÑA / PROYECTO:', margin + 4, currentY + 12);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`${campaign.title} (Código: ${campaign.accessCode})`, margin + 38, currentY + 12);
+  currentY += 36;
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('FECHA DE CORTE:', margin + 4, currentY + 18);
-  doc.setFont('helvetica', 'normal');
-  const nowFormatted = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
-  const durStr = `${campaign.durationDays || 15} días de vigencia`;
-  doc.text(`${nowFormatted} · Periodo activo: ${durStr}`, margin + 38, currentY + 18);
-
-  currentY += 28;
-
-  // Franja de KPIs de Portada (4 Bloques)
-  const boxWidth = (contentWidth - 9) / 4;
+  // 2. Tarjetas de Indicadores Globales (KPIs)
+  const kpiWidth = (contentWidth - 9) / 4;
   const kpis = [
     { label: 'TOTAL INSCRITOS', val: `${totalEnrolled}`, sub: 'En plantilla' },
-    { label: 'EVALUACIONES HECHAS', val: `${completedCount}`, sub: 'Evaluados' },
-    { label: 'PARTICIPACIÓN', val: `${participationRate}%`, sub: 'Tasa global' },
-    { label: 'ESTILO DOMINANTE', val: dominantFactor, sub: dominantNames[dominantFactor].split(' ')[0] }
+    { label: 'EVALUACIONES COMPLETAS', val: `${completedCount}`, sub: `${participationRate}% de avance` },
+    { label: 'TASA DE PARTICIPACIÓN', val: `${participationRate}%`, sub: `${totalEnrolled - completedCount} pendientes` },
+    { label: 'FACTOR PREDOMINANTE', val: dominantFactor, sub: dominantNames[dominantFactor].split('(')[0].trim() }
   ];
 
   kpis.forEach((kpi, idx) => {
-    const x = margin + idx * (boxWidth + 3);
+    const x = margin + idx * (kpiWidth + 3);
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(x, currentY, boxWidth, 20, 2, 2, 'FD');
+    doc.roundedRect(x, currentY, kpiWidth, 22, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(kpi.label, x + boxWidth / 2, currentY + 5.5, { align: 'center' });
+    doc.text(kpi.label, x + kpiWidth / 2, currentY + 5.5, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
+    doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text(kpi.val, x + boxWidth / 2, currentY + 13, { align: 'center' });
+    doc.text(kpi.val, x + kpiWidth / 2, currentY + 13.5, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(kpi.sub, x + boxWidth / 2, currentY + 17.5, { align: 'center' });
+    doc.setTextColor(71, 85, 105);
+    doc.text(kpi.sub, x + kpiWidth / 2, currentY + 18.5, { align: 'center' });
   });
 
-  currentY += 25;
+  currentY += 26;
 
-  // Sección 1: Radiografía Conductual del Equipo (Gráficas y Datos)
+  // 3. Distribución Porcentual y Gráfica del Clima Conductual
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
+  doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('1. Radiografía Conductual del Equipo (Distribución e Intensidad)', margin, currentY);
+  doc.text('DISTRIBUCIÓN Y RADIOGRAFÍA DEL TALENTO (D - I - S - C):', margin, currentY);
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text('Distribución porcentual por factor dominante y promedio de intensidad general del grupo', margin, currentY + 4.5);
+  currentY += 4.5;
 
-  currentY += 8;
-
-  const dimensions = [
+  const quadrantData = [
     {
       code: 'D',
-      title: 'Dominancia (D)',
-      desc: 'Enfocados a resultados, toma rápida de decisiones, retos e impulso competitivo.',
+      name: 'Dominancia',
+      desc: 'Orientado a Resultados, Desafíos y Ritmo Rápido',
       count: quadrantCounts.D,
+      pct: completedCount > 0 ? Math.round((quadrantCounts.D / completedCount) * 100) : 0,
       avgPct: avgScores.dPercent,
       color: [190, 18, 60] // Rose 700
     },
     {
       code: 'I',
-      title: 'Influencia (I)',
-      desc: 'Enfocados a relaciones humanas, dinamismo, persuasión comercial y optimismo grupal.',
+      name: 'Influencia',
+      desc: 'Orientado a Personas, Persuasión y Comunicación',
       count: quadrantCounts.I,
+      pct: completedCount > 0 ? Math.round((quadrantCounts.I / completedCount) * 100) : 0,
       avgPct: avgScores.iPercent,
       color: [217, 119, 6] // Amber 600
     },
     {
       code: 'S',
-      title: 'Estabilidad (S)',
-      desc: 'Enfocados a procesos consistentes, empatía, cohesión de equipo, lealtad y soporte.',
+      name: 'Estabilidad',
+      desc: 'Orientado a la Cooperación, Consistencia y Soporte',
       count: quadrantCounts.S,
+      pct: completedCount > 0 ? Math.round((quadrantCounts.S / completedCount) * 100) : 0,
       avgPct: avgScores.sPercent,
       color: [5, 150, 105] // Emerald 600
     },
     {
       code: 'C',
-      title: 'Cumplimiento (C)',
-      desc: 'Enfocados a precisión analítica, calidad técnica, rigor normativo y metodología.',
+      name: 'Cumplimiento',
+      desc: 'Orientado a la Calidad, Rigor Analítico y Normas',
       count: quadrantCounts.C,
+      pct: completedCount > 0 ? Math.round((quadrantCounts.C / completedCount) * 100) : 0,
       avgPct: avgScores.cPercent,
       color: [2, 132, 199] // Sky 600
     }
   ];
 
-  dimensions.forEach((dim) => {
-    const pct = completedCount > 0 ? Math.round((dim.count / completedCount) * 100) : 0;
-
+  quadrantData.forEach((q) => {
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(margin, currentY, contentWidth, 13.5, 1.5, 1.5, 'FD');
+    doc.roundedRect(margin, currentY, contentWidth, 14, 2, 2, 'FD');
 
-    // Badge
-    doc.setFillColor(dim.color[0], dim.color[1], dim.color[2]);
-    doc.roundedRect(margin + 2.5, currentY + 2.5, 7, 8.5, 1, 1, 'F');
+    // Badge con letra
+    doc.setFillColor(q.color[0], q.color[1], q.color[2]);
+    doc.roundedRect(margin + 2.5, currentY + 2.5, 9, 9, 1.5, 1.5, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(255, 255, 255);
-    doc.text(dim.code, margin + 6, currentY + 8, { align: 'center' });
+    doc.text(q.code, margin + 7, currentY + 8.5, { align: 'center' });
 
     // Título y descripción
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(15, 23, 42);
-    doc.text(dim.title, margin + 12, currentY + 6);
+    doc.text(`${q.name} (${q.count} personas)`, margin + 14, currentY + 6);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
+    doc.setFontSize(6.8);
     doc.setTextColor(100, 116, 139);
-    doc.text(dim.desc, margin + 12, currentY + 10);
+    doc.text(q.desc, margin + 14, currentY + 10.5);
 
-    // Barra de porcentaje del talento
-    const barAreaWidth = 48;
-    const barStartX = pageWidth - margin - barAreaWidth - 28;
-
+    // Barra de progreso y porcentaje
+    const barX = margin + 100;
+    const barW = 55;
     doc.setFillColor(226, 232, 240);
-    doc.roundedRect(barStartX, currentY + 5, barAreaWidth, 3.5, 1, 1, 'F');
+    doc.roundedRect(barX, currentY + 5, barW, 4, 1, 1, 'F');
 
-    if (pct > 0) {
-      doc.setFillColor(dim.color[0], dim.color[1], dim.color[2]);
-      const fillW = Math.max(2, (barAreaWidth * pct) / 100);
-      doc.roundedRect(barStartX, currentY + 5, fillW, 3.5, 1, 1, 'F');
-    }
+    doc.setFillColor(q.color[0], q.color[1], q.color[2]);
+    const fillWidth = Math.max(1, (barW * q.pct) / 100);
+    doc.roundedRect(barX, currentY + 5, fillWidth, 4, 1, 1, 'F');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${pct}% (${dim.count})`, pageWidth - margin - 3, currentY + 6.5, { align: 'right' });
+    doc.text(`${q.pct}% del equipo`, margin + contentWidth - 4, currentY + 8, { align: 'right' });
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Intensidad media: ${dim.avgPct}%`, pageWidth - margin - 3, currentY + 10.5, { align: 'right' });
-
-    currentY += 15.5;
+    currentY += 16;
   });
 
-  currentY += 3;
+  currentY += 4;
 
-  // Clima Conductual Colectivo
+  // 4. Clima Conductual Colectivo
   let climaNombre = '';
   let climaResumen = '';
   if (dominantFactor === 'D') {
-    climaNombre = 'Equipo Orientado al Resultado Rápido, Desafíos y la Ejecución Asertiva';
-    climaResumen = 'Predominio de proactividad, firmeza en decisiones y orientación al cumplimiento de hitos comerciales u operativos inmediatos.';
+    climaNombre = 'Equipo Altamente Orientado a Resultados, Desafíos y Velocidad de Ejecución';
+    climaResumen = 'Predomina un estilo directo, resolutivo y competitivo. El equipo muestra gran capacidad para superar obstáculos bajo presión, aunque requiere cuidar la escucha activa y la paciencia.';
   } else if (dominantFactor === 'I') {
-    climaNombre = 'Equipo Orientado a la Relación, Expansión Comercial y Entusiasmo Colectivo';
-    climaResumen = 'Predominio de apertura social, persuasión, espíritu de colaboración y dinamismo para proyectar ideas al exterior.';
+    climaNombre = 'Equipo Orientado a las Relaciones, Comunicación Abierta e Innovación';
+    climaResumen = 'Predomina la energía grupal, la creatividad y la facilidad de conexión interpersonal. Gran impacto en ventas y proyectos colaborativos; requiere reforzar el seguimiento metódico de minutas y fechas de entrega.';
   } else if (dominantFactor === 'S') {
-    climaNombre = 'Equipo Orientado a la Estabilidad, Cohesión Interna y Consistencia Metódica';
-    climaResumen = 'Predominio de soporte mutuo, retención de conocimientos, fiabilidad operativa y armonía en las relaciones laborales.';
+    climaNombre = 'Equipo Orientado a la Estabilidad, Consistencia y Soporte Mutuo';
+    climaResumen = 'Predomina la lealtad, la perseverancia y la armonía laboral. Excelente ritmo sostenido en tareas continuas; se beneficia de acompañamiento directivo ante cambios estratégicos bruscos.';
   } else {
-    climaNombre = 'Equipo Orientado a la Precisión Analítica, Estándares de Calidad y Rigor Técnico';
-    climaResumen = 'Predominio de rigor metodológico, búsqueda de exactitud, prevención sistemática de riesgos y cumplimiento estricto.';
+    climaNombre = 'Equipo Orientado a la Precisión Técnica, Calidad y Rigor de Procesos';
+    climaResumen = 'Predomina el análisis objetivo y el apego estricto a las normas. Garantiza entregas con mínimo margen de error; requiere evitar la parálisis por análisis en decisiones que demandan rapidez.';
   }
 
   doc.setFillColor(241, 245, 249);
@@ -356,7 +347,7 @@ export async function exportExecutiveGeneralPdfReport({
   doc.text(climaResumen, margin + 4, currentY + 16, { maxWidth: contentWidth - 8 });
 
   // =========================================================================
-  // HOJA 2: DIAGNÓSTICO ESTRATÉGICO GRUPAL (ANÁLISIS CUALITATIVO PROFUNDO)
+  // HOJA 2: DIAGNÓSTICO ESTRATÉGICO GRUPAL
   // =========================================================================
   doc.addPage();
   drawPageHeader(
@@ -366,7 +357,6 @@ export async function exportExecutiveGeneralPdfReport({
 
   let diagY = 30;
 
-  // Textos detallados para el diagnóstico estratégico
   let fortalezasColectivasDetalladas = '';
   let puntosCiegosFricciones = '';
   let directricesLiderazgo = '';
@@ -432,7 +422,7 @@ export async function exportExecutiveGeneralPdfReport({
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.setTextColor(5, 150, 105); // Verde esmeralda
+  doc.setTextColor(5, 150, 105);
   doc.text('A. FORTALEZAS COLECTIVAS DEL EQUIPO', margin + 4, diagY + 6);
 
   doc.setFont('helvetica', 'normal');
@@ -449,7 +439,7 @@ export async function exportExecutiveGeneralPdfReport({
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.setTextColor(190, 18, 60); // Rojo rubí
+  doc.setTextColor(190, 18, 60);
   doc.text('B. PUNTOS CIEGOS Y FRICCIONES POTENCIALES DE RELACIÓN', margin + 4, diagY + 6);
 
   doc.setFont('helvetica', 'normal');
@@ -466,7 +456,7 @@ export async function exportExecutiveGeneralPdfReport({
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.setTextColor(2, 132, 199); // Azul corporativo
+  doc.setTextColor(2, 132, 199);
   doc.text('C. DIRECTRICES DE LIDERAZGO PARA LA DIRECCIÓN GENERAL', margin + 4, diagY + 6);
 
   doc.setFont('helvetica', 'normal');
@@ -475,7 +465,128 @@ export async function exportExecutiveGeneralPdfReport({
   doc.text(directricesLiderazgo, margin + 4, diagY + 12, { maxWidth: contentWidth - 8, lineHeightFactor: 1.35 });
 
   // =========================================================================
-  // HOJA 3: MATRIZ DETALLADA DE TALENTO (TABLA CORPORATIVA)
+  // HOJA 3: DIAGNÓSTICO DE FRICCIONES Y ALIANZAS DEL EQUIPO (MAPA DE SINERGIA)
+  // =========================================================================
+  doc.addPage();
+  drawPageHeader(
+    'DIAGNÓSTICO DE FRICCIONES Y ALIANZAS DEL EQUIPO (MAPA DE SINERGIA)',
+    `Dinámica Grupal · Riesgos Operativos y Recomendaciones de Balance · ${company.name}`
+  );
+
+  const synergySummary = generateTeamSynergySummary(collaborators);
+  let synY = 30;
+
+  // Header Box de Sinergia
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, synY, contentWidth, 24, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  doc.text('ÍNDICE GLOBAL DE COMPATIBILIDAD Y SINERGIA GRUPAL:', margin + 4, synY + 7);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(5, 150, 105);
+  doc.text(`${synergySummary.averageSynergy}%`, margin + 4, synY + 16);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    `Basado en ${synergySummary.totalPairs} interacciones pareadas de colaboradores evaluados en esta campaña.`,
+    margin + 26,
+    synY + 15
+  );
+
+  synY += 28;
+
+  // Alianzas Clave Detectadas
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, synY, contentWidth, 55, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(5, 150, 105);
+  doc.text('1. ALIANZAS NATURALES Y COMPLEMENTARIEDADES ESTRATÉGICAS', margin + 4, synY + 6);
+
+  let aY = synY + 12;
+  if (synergySummary.topAlliances.length > 0) {
+    synergySummary.topAlliances.slice(0, 3).forEach((al) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`• ${al.collabAName} (${al.collabADominant}) + ${al.collabBName} (${al.collabBDominant}): ${al.synergyScore}% Sinergia`, margin + 4, aY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(al.allianceDescription, margin + 6, aY + 4, { maxWidth: contentWidth - 12 });
+      aY += 13;
+    });
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Se requiere completar más evaluaciones para mapear alianzas específicas.', margin + 4, aY);
+  }
+
+  synY += 60;
+
+  // Alertas Tempranas de Fricción
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, synY, contentWidth, 55, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(190, 18, 60);
+  doc.text('2. ALERTAS TEMPRANAS DE FRICCIÓN POTENCIAL Y RIESGOS DE OPERACIÓN', margin + 4, synY + 6);
+
+  let fY = synY + 12;
+  if (synergySummary.criticalFrictions.length > 0) {
+    synergySummary.criticalFrictions.slice(0, 3).forEach((fr) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`• ${fr.collabAName} + ${fr.collabBName} (${fr.allianceType})`, margin + 4, fY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(fr.frictionPoints.join(' · '), margin + 6, fY + 4, { maxWidth: contentWidth - 12 });
+      fY += 13;
+    });
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text('No se detectaron parejas con fricción de alto riesgo crítico en el muestreo actual.', margin + 4, fY);
+  }
+
+  synY += 60;
+
+  // Recomendaciones para conformación de comités
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, synY, contentWidth, 42, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(2, 132, 199);
+  doc.text('3. RECOMENDACIONES PARA BALANCEAR COMITÉS O PROYECTOS INTERDISCIPLINARIOS', margin + 4, synY + 6);
+
+  let rY = synY + 12;
+  synergySummary.leadershipRecommendations.slice(0, 3).forEach((rec) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`• ${rec}`, margin + 4, rY, { maxWidth: contentWidth - 8 });
+    rY += 9;
+  });
+
+  // =========================================================================
+  // HOJA 4: MATRIZ DETALLADA DE TALENTO (TABLA CORPORATIVA)
   // =========================================================================
   doc.addPage();
   drawPageHeader(
@@ -484,22 +595,29 @@ export async function exportExecutiveGeneralPdfReport({
   );
 
   const tableData = collaborators.map((c, index) => {
-    const dScore = c.scores ? (c.scores.D > 0 ? `+${c.scores.D}` : `${c.scores.D}`) : '—';
-    const iScore = c.scores ? (c.scores.I > 0 ? `+${c.scores.I}` : `${c.scores.I}`) : '—';
-    const sScore = c.scores ? (c.scores.S > 0 ? `+${c.scores.S}` : `${c.scores.S}`) : '—';
-    const cScore = c.scores ? (c.scores.C > 0 ? `+${c.scores.C}` : `${c.scores.C}`) : '—';
+    const isDone = c.status === 'completed';
+    let natAdapText = '—';
+    let stressText = '—';
+    let jobFitText = '—';
+
+    if (isDone && c.scores) {
+      const natAdap = calculateNaturalVsAdapted(c.scores);
+      natAdapText = `Nat:${natAdap.natural.dominantFactor} / Adap:${natAdap.adapted.dominantFactor}`;
+      stressText = `${natAdap.stressIndex}% (${natAdap.stressLevel.slice(0, 3)})`;
+      const jobFitRes = calculateJobFit(c.scores, c.benchmarkId || c.role, c.department);
+      jobFitText = `${jobFitRes.fitPercentage}% (${jobFitRes.fitLevel.slice(0, 4)})`;
+    }
 
     return [
       `${index + 1}`,
       c.fullName,
       c.department,
       c.role || 'Colaborador',
-      c.status === 'completed' ? 'Completado' : 'Pendiente',
-      c.archetype?.title || (c.status === 'completed' ? 'Asignado' : '—'),
-      dScore,
-      iScore,
-      sScore,
-      cScore
+      isDone ? 'Completado' : 'Pendiente',
+      c.archetype?.title || (isDone ? 'Asignado' : '—'),
+      natAdapText,
+      stressText,
+      jobFitText
     ];
   });
 
@@ -511,39 +629,37 @@ export async function exportExecutiveGeneralPdfReport({
       'Departamento',
       'Puesto / Cargo',
       'Estatus',
-      'Arquetipo DISC Predominante',
-      'D',
-      'I',
-      'S',
-      'C'
+      'Arquetipo DISC',
+      'Natural / Adaptado',
+      'Tensión',
+      'Job-Fit'
     ]],
     body: tableData,
     theme: 'grid',
     styles: {
       font: 'helvetica',
-      fontSize: 7.5,
+      fontSize: 7,
       textColor: [30, 41, 59],
       cellPadding: 2,
       lineColor: [226, 232, 240],
       lineWidth: 0.2
     },
     headStyles: {
-      fillColor: [15, 23, 42], // Slate 900
+      fillColor: [15, 23, 42],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
       halign: 'center'
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 8 },
-      1: { cellWidth: 38, fontStyle: 'bold' },
-      2: { cellWidth: 26 },
-      3: { cellWidth: 26 },
-      4: { halign: 'center', cellWidth: 18 },
-      5: { cellWidth: 36, fontStyle: 'bold' },
-      6: { halign: 'center', cellWidth: 8, textColor: [190, 18, 60] },
-      7: { halign: 'center', cellWidth: 8, textColor: [217, 119, 6] },
-      8: { halign: 'center', cellWidth: 8, textColor: [5, 150, 105] },
-      9: { halign: 'center', cellWidth: 8, textColor: [2, 132, 199] }
+      0: { halign: 'center', cellWidth: 7 },
+      1: { cellWidth: 34, fontStyle: 'bold' },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 24 },
+      4: { halign: 'center', cellWidth: 16 },
+      5: { cellWidth: 30, fontStyle: 'bold' },
+      6: { halign: 'center', cellWidth: 20 },
+      7: { halign: 'center', cellWidth: 13 },
+      8: { halign: 'center', cellWidth: 14 }
     },
     alternateRowStyles: {
       fillColor: [248, 250, 252]
@@ -552,10 +668,18 @@ export async function exportExecutiveGeneralPdfReport({
   });
 
   // =========================================================================
-  // SECCIÓN 2: FICHAS TÉCNICAS INDIVIDUALES (PÁGINA COMPLETA POR CADA COLABORADOR)
-  // Cada evaluado cuenta con una hoja completa, estructurada y profunda
+  // SECCIÓN 2: FICHAS TÉCNICAS INDIVIDUALES (DOS HOJAS ESTRUCTURADAS POR COLABORADOR)
   // =========================================================================
   completed.forEach((collab) => {
+    const scores = collab.scores;
+    const archetype = collab.archetype;
+    if (!scores) return;
+
+    const natAdap = calculateNaturalVsAdapted(scores);
+    const jobFitRes = calculateJobFit(scores, collab.benchmarkId || collab.role, collab.department);
+    const leadershipGuide = getLeadershipGuide(scores.dominantFactor, scores.secondaryFactor);
+
+    // --- PÁGINA INDIVIDUAL 1: PERFIL PSICOMÉTRICO, NATURAL VS ADAPTADO & JOB-FIT ---
     doc.addPage();
     drawPageHeader(
       'FICHA PSICOMÉTRICA INDIVIDUAL DISC · REPORTE EJECUTIVO',
@@ -563,18 +687,14 @@ export async function exportExecutiveGeneralPdfReport({
     );
 
     let indY = 28;
-    const scores = collab.scores;
-    const archetype = collab.archetype;
-    const dom = scores?.dominantFactor || 'D';
-    const sec = scores?.secondaryFactor || 'I';
 
-    // 1. Tarjeta de Datos del Evaluado
+    // 1. Datos del Evaluado
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(203, 213, 225);
     doc.roundedRect(margin, indY, contentWidth, 23, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setTextColor(15, 23, 42);
     doc.text(collab.fullName, margin + 4, indY + 6.5);
 
@@ -590,208 +710,283 @@ export async function exportExecutiveGeneralPdfReport({
 
     indY += 26;
 
-    // 2. Gráfica de Barras Horizontales DISC
+    // 2. Gráfica Dual: Perfil Natural (Azul Marino) vs. Perfil Adaptado (Índigo)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
-    doc.text('Perfil de Intensidad por Dimensión Conductual (D - I - S - C):', margin, indY);
+    doc.text('Contraste Psicométrico: Estilo Natural vs. Estilo Adaptado (Índice de Desgaste):', margin, indY);
+
+    // Badge Tensión
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    const stressColor = natAdap.stressLevel === 'Normal' ? [5, 150, 105] : natAdap.stressLevel === 'Moderado' ? [217, 119, 6] : [190, 18, 60];
+    doc.setTextColor(stressColor[0], stressColor[1], stressColor[2]);
+    doc.text(`Tensión: ${natAdap.stressIndex}% (${natAdap.stressLevel})`, margin + contentWidth, indY, { align: 'right' });
 
     indY += 4.5;
 
-    const indBarWidth = (contentWidth - 9) / 4;
-    const indFactors = [
-      {
-        code: 'D',
-        title: 'Dominancia',
-        score: scores?.D ?? 0,
-        pct: scores?.dPercent ?? 50,
-        color: [190, 18, 60]
-      },
-      {
-        code: 'I',
-        title: 'Influencia',
-        score: scores?.I ?? 0,
-        pct: scores?.iPercent ?? 50,
-        color: [217, 119, 6]
-      },
-      {
-        code: 'S',
-        title: 'Estabilidad',
-        score: scores?.S ?? 0,
-        pct: scores?.sPercent ?? 50,
-        color: [5, 150, 105]
-      },
-      {
-        code: 'C',
-        title: 'Cumplimiento',
-        score: scores?.C ?? 0,
-        pct: scores?.cPercent ?? 50,
-        color: [2, 132, 199]
-      }
+    const dualBarWidth = (contentWidth - 9) / 4;
+    const indFactors: { code: DISCFactor; title: string; natPct: number; adapPct: number }[] = [
+      { code: 'D', title: 'Dominancia', natPct: natAdap.natural.dPercent, adapPct: natAdap.adapted.dPercent },
+      { code: 'I', title: 'Influencia', natPct: natAdap.natural.iPercent, adapPct: natAdap.adapted.iPercent },
+      { code: 'S', title: 'Estabilidad', natPct: natAdap.natural.sPercent, adapPct: natAdap.adapted.sPercent },
+      { code: 'C', title: 'Cumplimiento', natPct: natAdap.natural.cPercent, adapPct: natAdap.adapted.cPercent }
     ];
 
     indFactors.forEach((f, idx) => {
-      const x = margin + idx * (indBarWidth + 3);
+      const x = margin + idx * (dualBarWidth + 3);
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(x, indY, indBarWidth, 23, 2, 2, 'FD');
+      doc.roundedRect(x, indY, dualBarWidth, 29, 2, 2, 'FD');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
-      doc.setTextColor(f.color[0], f.color[1], f.color[2]);
+      doc.setTextColor(15, 23, 42);
       doc.text(`${f.code} · ${f.title}`, x + 3, indY + 5);
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      const scoreStr = f.score > 0 ? `+${f.score}` : `${f.score}`;
-      doc.text(scoreStr, x + indBarWidth - 3, indY + 5, { align: 'right' });
-
-      doc.setFillColor(226, 232, 240);
-      doc.roundedRect(x + 3, indY + 8.5, indBarWidth - 6, 3, 1, 1, 'F');
-
-      doc.setFillColor(f.color[0], f.color[1], f.color[2]);
-      const fillW = Math.max(2, ((indBarWidth - 6) * f.pct) / 100);
-      doc.roundedRect(x + 3, indY + 8.5, fillW, 3, 1, 1, 'F');
-
+      // Barra Natural (Azul Marino)
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Nat: ${f.natPct}%`, x + 3, indY + 11);
+
+      doc.setFillColor(226, 232, 240);
+      doc.roundedRect(x + 18, indY + 8.5, dualBarWidth - 21, 3, 1, 1, 'F');
+      doc.setFillColor(15, 23, 42); // Azul Marino
+      doc.roundedRect(x + 18, indY + 8.5, Math.max(1, ((dualBarWidth - 21) * f.natPct) / 100), 3, 1, 1, 'F');
+
+      // Barra Adaptada (Índigo)
+      doc.setTextColor(79, 70, 229);
+      doc.text(`Adap: ${f.adapPct}%`, x + 3, indY + 18);
+
+      doc.setFillColor(226, 232, 240);
+      doc.roundedRect(x + 18, indY + 15.5, dualBarWidth - 21, 3, 1, 1, 'F');
+      doc.setFillColor(99, 102, 241); // Índigo
+      doc.roundedRect(x + 18, indY + 15.5, Math.max(1, ((dualBarWidth - 21) * f.adapPct) / 100), 3, 1, 1, 'F');
+
+      // Gap
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
       doc.setTextColor(100, 116, 139);
-      doc.text(`${f.pct}% Intensidad`, x + 3, indY + 16.5);
+      const gap = Math.abs(f.natPct - f.adapPct);
+      doc.text(`Brecha: Δ ${gap}%`, x + 3, indY + 25);
     });
 
-    indY += 27;
+    indY += 33;
 
-    // 3. Arquetipo Dominante y Subtipo Secundario
+    // Diagnóstico Directivo del Desgaste
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, indY, contentWidth, 20, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Diagnóstico de Desgaste Conductual: ${natAdap.levelLabel}`, margin + 4, indY + 5.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(natAdap.executiveDiagnosis, margin + 4, indY + 10.5, { maxWidth: contentWidth - 8 });
+    doc.text(`Directriz: ${natAdap.recommendation}`, margin + 4, indY + 16, { maxWidth: contentWidth - 8 });
+
+    indY += 24;
+
+    // 3. Compatibilidad con el Puesto (Job-Fit Score %)
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, indY, contentWidth, 34, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(2, 132, 199);
+    doc.text(`COMPATIBILIDAD CON EL PUESTO (JOB-FIT): ${jobFitRes.benchmarkTitle.toUpperCase()}`, margin + 4, indY + 5.5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    const fitBadgeColor = jobFitRes.fitLevel === 'Alto' ? [5, 150, 105] : jobFitRes.fitLevel === 'Medio' ? [217, 119, 6] : [190, 18, 60];
+    doc.setTextColor(fitBadgeColor[0], fitBadgeColor[1], fitBadgeColor[2]);
+    doc.text(`${jobFitRes.fitPercentage}% · Ajuste ${jobFitRes.fitLevel}`, margin + contentWidth - 4, indY + 5.5, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(jobFitRes.summary, margin + 4, indY + 11.5, { maxWidth: contentWidth - 8 });
+
+    // Gaps en Job-Fit
+    let gX = margin + 4;
+    const gColW = (contentWidth - 12) / 4;
+    jobFitRes.gaps.forEach((g) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${g.factor}: ${g.status}`, gX, indY + 23);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Real:${g.actualPercent}% / Ideal:${g.benchmarkPercent}%`, gX, indY + 28);
+      gX += gColW + 2;
+    });
+
+    indY += 38;
+
+    // 4. Arquetipo Conductual
     if (archetype) {
       doc.setFillColor(241, 245, 249);
       doc.setDrawColor(203, 213, 225);
       doc.roundedRect(margin, indY, contentWidth, 28, 2, 2, 'FD');
 
-      // Badge Dominante
       doc.setFillColor(15, 23, 42);
       doc.roundedRect(margin + 3, indY + 3.5, 13, 13, 2, 2, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(255, 255, 255);
-      doc.text(dom, margin + 9.5, indY + 12, { align: 'center' });
+      doc.text(archetype.dominant, margin + 9.5, indY + 12, { align: 'center' });
 
-      // Título
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(9);
       doc.setTextColor(15, 23, 42);
-      doc.text(`Arquetipo Dominante: ${archetype.title}`, margin + 19, indY + 7);
+      doc.text(`Arquetipo: ${archetype.title}`, margin + 19, indY + 7);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(2, 132, 199);
-      doc.text(`Subtipo Secundario: Dimensión ${sec} (${dominantNames[sec].split('(')[0].trim()}) · ${archetype.subtitle}`, margin + 19, indY + 12);
+      doc.text(archetype.subtitle, margin + 19, indY + 12);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.8);
       doc.setTextColor(51, 65, 85);
       doc.text(archetype.description, margin + 4, indY + 20, { maxWidth: contentWidth - 8 });
-
-      indY += 32;
     }
 
-    // 4. Secciones Cualitativas Profundas (2x2 Grid)
-    if (archetype) {
-      const boxW = (contentWidth - 4) / 2;
-      const boxH = 43;
+    // --- PÁGINA INDIVIDUAL 2: MANUAL DE LIDERAZGO PARA EL JEFE DIRECTO (DOs & DONTs) Y DESARROLLO ---
+    doc.addPage();
+    drawPageHeader(
+      'MANUAL DE GESTIÓN Y LIDERAZGO PARA EL JEFE DIRECTO',
+      `Guía Ejecutiva de Bolsillo (DOs & DON'Ts) · ${collab.fullName} · ${company.name}`
+    );
 
-      // Card A: Personalidad Laboral y Fortalezas
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, indY, boxW, boxH, 2, 2, 'FD');
+    let manY = 30;
 
+    // Header del Manual
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, manY, contentWidth, 18, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`DIRECTRICES DE SUPERVISIÓN Y MOTIVACIÓN PERSONALIZADAS`, margin + 4, manY + 6);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      `Pautas directivas para maximizar el engagement, evitar errores comunes de supervisión y potenciar el desempeño de ${collab.fullName}.`,
+      margin + 4,
+      manY + 12
+    );
+
+    manY += 22;
+
+    // Dos Columnas: DOs (Verde) vs DON'Ts (Rojo)
+    const colW = (contentWidth - 6) / 2;
+    const colH = 92;
+
+    // Columna Izquierda: QUÉ SÍ HACER (DOs)
+    doc.setFillColor(240, 253, 244); // Emerald 50
+    doc.setDrawColor(187, 247, 208); // Emerald 200
+    doc.roundedRect(margin, manY, colW, colH, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(5, 150, 105); // Emerald 600
+    doc.text('QUÉ SÍ HACER (DOs) · MAXIMIZA SU RENDIMIENTO', margin + 4, manY + 7);
+
+    let doY = manY + 14;
+    leadershipGuide.dos.forEach((item) => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(5, 150, 105);
-      doc.text('PERSONALIDAD LABORAL Y FORTALEZAS', margin + 3.5, indY + 5.5);
+      doc.text('✓', margin + 4, doY);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      let fY = indY + 10.5;
-      archetype.strengths.slice(0, 4).forEach(st => {
-        doc.text(`• ${st}`, margin + 3.5, fY, { maxWidth: boxW - 7 });
-        fY += 7;
-      });
+      doc.setFontSize(6.8);
+      doc.setTextColor(30, 41, 59);
+      doc.text(item, margin + 9, doY, { maxWidth: colW - 13 });
+      doY += 15;
+    });
 
-      // Card B: Estilo de Comunicación Óptimo
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin + boxW + 4, indY, boxW, boxH, 2, 2, 'FD');
+    // Columna Derecha: QUÉ NUNCA HACER (DON'Ts)
+    const rightX = margin + colW + 6;
+    doc.setFillColor(255, 241, 242); // Rose 50
+    doc.setDrawColor(254, 205, 211); // Rose 200
+    doc.roundedRect(rightX, manY, colW, colH, 2, 2, 'FD');
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(2, 132, 199);
-      doc.text('ESTILO DE COMUNICACIÓN ÓPTIMO', margin + boxW + 7.5, indY + 5.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(190, 18, 60); // Rose 700
+    doc.text("QUÉ NUNCA HACER (DON'Ts) · DESMOTIVA O PARALIZA", rightX + 4, manY + 7);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text(archetype.communicationStyle, margin + boxW + 7.5, indY + 10.5, { maxWidth: boxW - 10 });
-
-      doc.setFont('helvetica', 'bold');
-      doc.text('Cómo prefiere recibir retroalimentación:', margin + boxW + 7.5, indY + 26);
-      doc.setFont('helvetica', 'normal');
-      let prefFeedback = '';
-      if (dom === 'D') prefFeedback = 'Directo al grano, con datos de impacto y metas claras.';
-      else if (dom === 'I') prefFeedback = 'Con calidez personal, resaltando lo positivo antes de ajustar.';
-      else if (dom === 'S') prefFeedback = 'Con calma, en privado y dando tiempo para procesar el cambio.';
-      else prefFeedback = 'Con datos precisos por escrito, lógica impecable y sin ambigüedades.';
-      doc.text(prefFeedback, margin + boxW + 7.5, indY + 31, { maxWidth: boxW - 10 });
-
-      indY += boxH + 4;
-
-      // Card C: Comportamiento Bajo Tensión y Estrés
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin, indY, boxW, boxH, 2, 2, 'FD');
-
+    let dontY = manY + 14;
+    leadershipGuide.donts.forEach((item) => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(190, 18, 60);
-      doc.text('CONDUCTA BAJO PRESIÓN Y ESTRÉS', margin + 3.5, indY + 5.5);
+      doc.text('✕', rightX + 4, dontY);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text(archetype.underPressure, margin + 3.5, indY + 10.5, { maxWidth: boxW - 7 });
+      doc.setFontSize(6.8);
+      doc.setTextColor(30, 41, 59);
+      doc.text(item, rightX + 9, dontY, { maxWidth: colW - 13 });
+      dontY += 15;
+    });
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('Cómo recuperar el equilibrio:', margin + 3.5, indY + 25);
-      doc.setFont('helvetica', 'normal');
-      let eqStr = '';
-      if (dom === 'D') eqStr = 'Brindar autonomía para solucionar el obstáculo sin microgestión.';
-      else if (dom === 'I') eqStr = 'Espacios para dialogar y validar sus aportes creativos.';
-      else if (dom === 'S') eqStr = 'Garantizar estabilidad y reducir la incertidumbre inmediata.';
-      else eqStr = 'Dar tiempo para verificar datos y no forzar decisiones precipitadas.';
-      doc.text(eqStr, margin + 3.5, indY + 30, { maxWidth: boxW - 7 });
+    manY += colH + 6;
 
-      // Card D: Entorno Laboral Ideal y Guía Directiva para el Líder
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin + boxW + 4, indY, boxW, boxH, 2, 2, 'FD');
+    // Sección inferior: Comunicación, Tensión y Entorno
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, manY, contentWidth, 54, 2, 2, 'FD');
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(217, 119, 6);
-      doc.text('GUÍA PARA SU JEFE / LÍDER DIRECTO', margin + boxW + 7.5, indY + 5.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(2, 132, 199);
+    doc.text('FACTORES CLAVE DE COMUNICACIÓN Y ENTORNO ÓPTIMO', margin + 4, manY + 6);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      let gY = indY + 10.5;
-      archetype.growthAreas.slice(0, 3).forEach(ga => {
-        doc.text(`• ${ga}`, margin + boxW + 7.5, gY, { maxWidth: boxW - 10 });
-        gY += 8;
-      });
+    let subY = manY + 13;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(15, 23, 42);
+    doc.text('• Cómo retroalimentarle óptimamente:', margin + 4, subY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85);
+    doc.text(archetype?.communicationStyle || 'Directo y respetuoso.', margin + 48, subY, { maxWidth: contentWidth - 52 });
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('Entorno propicio:', margin + boxW + 7.5, indY + 34.5);
-      doc.setFont('helvetica', 'normal');
-      doc.text(archetype.idealEnvironment, margin + boxW + 7.5, indY + 38.5, { maxWidth: boxW - 10 });
-    }
+    subY += 11;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('• Comportamiento bajo estrés severo:', margin + 4, subY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85);
+    doc.text(archetype?.underPressure || 'Mantener calma y reducir presión.', margin + 48, subY, { maxWidth: contentWidth - 52 });
+
+    subY += 11;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('• Entorno físico y laboral preferido:', margin + 4, subY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85);
+    doc.text(archetype?.idealEnvironment || 'Espacio estructurado.', margin + 48, subY, { maxWidth: contentWidth - 52 });
+
+    subY += 11;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('• Palancas principales de motivación:', margin + 4, subY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85);
+    doc.text(leadershipGuide.motivationKeys.join(' · '), margin + 48, subY, { maxWidth: contentWidth - 52 });
   });
 
   // Numeración formal y pie de página en todas las páginas
@@ -808,7 +1003,7 @@ export async function exportExecutiveGeneralPdfReport({
 
 /**
  * 2. REPORTE INDIVIDUAL EN PDF — FICHA TÉCNICA Y PSICOMÉTRICA DISC
- * Genera la ficha individual autónoma cuando se pulsa el botón en la fila o en el modal
+ * Genera la ficha individual completa de 2 páginas cuando se descarga por separado
  */
 export async function exportIndividualPdfReport({
   collaborator,
@@ -822,42 +1017,59 @@ export async function exportIndividualPdfReport({
   const contentWidth = pageWidth - margin * 2;
 
   const logoBase64 = await loadLogoBase64();
-
   const scores = collaborator.scores;
   const archetype = collaborator.archetype;
-  const dom = scores?.dominantFactor || 'D';
-  const sec = scores?.secondaryFactor || 'I';
+  if (!scores) return;
 
-  const dominantNames: Record<DISCFactor, string> = {
-    D: 'Dominancia (Orientada a Metas, Rapidez y Decisión)',
-    I: 'Influencia (Promotores, Sociabilidad y Persuasión)',
-    S: 'Estabilidad (Consistencia, Lealtad y Soporte Grupal)',
-    C: 'Cumplimiento (Analítico, Calidad Técnica y Precisión)'
+  const natAdap = calculateNaturalVsAdapted(scores);
+  const jobFitRes = calculateJobFit(scores, collaborator.benchmarkId || collaborator.role, collaborator.department);
+  const leadershipGuide = getLeadershipGuide(scores.dominantFactor, scores.secondaryFactor);
+
+  const nowFormatted = collaborator.completedAt 
+    ? new Date(collaborator.completedAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
+    : new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const drawIndHeader = (title: string, subtitle: string) => {
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 24, 'F');
+
+    if (logoBase64) {
+      try {
+        doc.addImage(logoBase64, 'PNG', margin, 4.5, 20, 15);
+      } catch (e) {
+        console.warn('Error dibujando logo:', e);
+      }
+    }
+
+    const titleX = logoBase64 ? margin + 24 : margin;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, titleX, 11);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(subtitle, titleX, 18);
   };
 
-  // Header Banner
-  doc.setFillColor(15, 23, 42); // Slate 900
-  doc.rect(0, 0, pageWidth, 24, 'F');
+  const drawIndFooter = (pageNum: number, total: number) => {
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
 
-  if (logoBase64) {
-    try {
-      doc.addImage(logoBase64, 'PNG', margin, 4.5, 20, 15);
-    } catch (e) {
-      console.warn('Error dibujando logo:', e);
-    }
-  }
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`DISC Enterprise · ${company?.name || 'Cliente'} · ${collaborator.fullName}`, margin, pageHeight - 7);
+    doc.text(`Página ${pageNum} de ${total}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+  };
 
-  const titleX = logoBase64 ? margin + 24 : margin;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text('FICHA PSICOMÉTRICA INDIVIDUAL DISC · REPORTE EJECUTIVO', titleX, 11);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Informe Confidencial de Perfil Conductual Organizacional', titleX, 18);
+  // --- HOJA 1: FICHA TÉCNICA, NATURAL VS ADAPTADO & JOB-FIT ---
+  drawIndHeader(
+    'FICHA PSICOMÉTRICA INDIVIDUAL DISC · REPORTE EJECUTIVO',
+    `Diagnóstico Conductual Integral · ${collaborator.fullName} · ${company?.name || 'Cliente'}`
+  );
 
   let currentY = 28;
 
@@ -867,7 +1079,7 @@ export async function exportIndividualPdfReport({
   doc.roundedRect(margin, currentY, contentWidth, 23, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
+  doc.setFontSize(10.5);
   doc.setTextColor(15, 23, 42);
   doc.text(collaborator.fullName, margin + 4, currentY + 6.5);
 
@@ -875,87 +1087,130 @@ export async function exportIndividualPdfReport({
   doc.setFontSize(7.5);
   doc.setTextColor(71, 85, 105);
   doc.text(`Puesto: ${collaborator.role || 'Colaborador'}   ·   Área: ${collaborator.department}   ·   Correo: ${collaborator.email}`, margin + 4, currentY + 12.5);
-  
-  const compDate = collaborator.completedAt 
-    ? new Date(collaborator.completedAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
-    : 'Completado';
-  doc.text(`Empresa: ${company?.name || 'Cliente'}   ·   Campaña: ${campaign?.accessCode || 'DISC'}   ·   Fecha Evaluación: ${compDate}`, margin + 4, currentY + 18);
+  doc.text(`Empresa: ${company?.name || 'Cliente'}   ·   Campaña: ${campaign?.accessCode || 'DISC'}   ·   Fecha Evaluación: ${nowFormatted}`, margin + 4, currentY + 18);
 
   currentY += 26;
 
-  // 2. Gráfica de Barras DISC
+  // 2. Gráfica Dual: Perfil Natural (Azul Marino) vs. Perfil Adaptado (Índigo)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('Perfil de Intensidad por Dimensión Conductual (D - I - S - C):', margin, currentY);
+  doc.text('Contraste Psicométrico: Estilo Natural vs. Estilo Adaptado (Índice de Desgaste):', margin, currentY);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  const stressColor = natAdap.stressLevel === 'Normal' ? [5, 150, 105] : natAdap.stressLevel === 'Moderado' ? [217, 119, 6] : [190, 18, 60];
+  doc.setTextColor(stressColor[0], stressColor[1], stressColor[2]);
+  doc.text(`Tensión: ${natAdap.stressIndex}% (${natAdap.stressLevel})`, margin + contentWidth, currentY, { align: 'right' });
 
   currentY += 4.5;
 
-  const barWidth = (contentWidth - 9) / 4;
-  const factors = [
-    {
-      code: 'D',
-      title: 'Dominancia',
-      score: scores?.D ?? 0,
-      pct: scores?.dPercent ?? 50,
-      color: [190, 18, 60]
-    },
-    {
-      code: 'I',
-      title: 'Influencia',
-      score: scores?.I ?? 0,
-      pct: scores?.iPercent ?? 50,
-      color: [217, 119, 6]
-    },
-    {
-      code: 'S',
-      title: 'Estabilidad',
-      score: scores?.S ?? 0,
-      pct: scores?.sPercent ?? 50,
-      color: [5, 150, 105]
-    },
-    {
-      code: 'C',
-      title: 'Cumplimiento',
-      score: scores?.C ?? 0,
-      pct: scores?.cPercent ?? 50,
-      color: [2, 132, 199]
-    }
+  const dualBarWidth = (contentWidth - 9) / 4;
+  const indFactors: { code: DISCFactor; title: string; natPct: number; adapPct: number }[] = [
+    { code: 'D', title: 'Dominancia', natPct: natAdap.natural.dPercent, adapPct: natAdap.adapted.dPercent },
+    { code: 'I', title: 'Influencia', natPct: natAdap.natural.iPercent, adapPct: natAdap.adapted.iPercent },
+    { code: 'S', title: 'Estabilidad', natPct: natAdap.natural.sPercent, adapPct: natAdap.adapted.sPercent },
+    { code: 'C', title: 'Cumplimiento', natPct: natAdap.natural.cPercent, adapPct: natAdap.adapted.cPercent }
   ];
 
-  factors.forEach((f, idx) => {
-    const x = margin + idx * (barWidth + 3);
+  indFactors.forEach((f, idx) => {
+    const x = margin + idx * (dualBarWidth + 3);
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(x, currentY, barWidth, 23, 2, 2, 'FD');
+    doc.roundedRect(x, currentY, dualBarWidth, 29, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.setTextColor(f.color[0], f.color[1], f.color[2]);
+    doc.setTextColor(15, 23, 42);
     doc.text(`${f.code} · ${f.title}`, x + 3, currentY + 5);
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    const scoreStr = f.score > 0 ? `+${f.score}` : `${f.score}`;
-    doc.text(scoreStr, x + barWidth - 3, currentY + 5, { align: 'right' });
-
-    doc.setFillColor(226, 232, 240);
-    doc.roundedRect(x + 3, currentY + 8.5, barWidth - 6, 3, 1, 1, 'F');
-
-    doc.setFillColor(f.color[0], f.color[1], f.color[2]);
-    const fillW = Math.max(2, ((barWidth - 6) * f.pct) / 100);
-    doc.roundedRect(x + 3, currentY + 8.5, fillW, 3, 1, 1, 'F');
-
+    // Natural
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Nat: ${f.natPct}%`, x + 3, currentY + 11);
+
+    doc.setFillColor(226, 232, 240);
+    doc.roundedRect(x + 18, currentY + 8.5, dualBarWidth - 21, 3, 1, 1, 'F');
+    doc.setFillColor(15, 23, 42);
+    doc.roundedRect(x + 18, currentY + 8.5, Math.max(1, ((dualBarWidth - 21) * f.natPct) / 100), 3, 1, 1, 'F');
+
+    // Adaptado
+    doc.setTextColor(79, 70, 229);
+    doc.text(`Adap: ${f.adapPct}%`, x + 3, currentY + 18);
+
+    doc.setFillColor(226, 232, 240);
+    doc.roundedRect(x + 18, currentY + 15.5, dualBarWidth - 21, 3, 1, 1, 'F');
+    doc.setFillColor(99, 102, 241);
+    doc.roundedRect(x + 18, currentY + 15.5, Math.max(1, ((dualBarWidth - 21) * f.adapPct) / 100), 3, 1, 1, 'F');
+
+    // Gap
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
     doc.setTextColor(100, 116, 139);
-    doc.text(`${f.pct}% Intensidad`, x + 3, currentY + 16.5);
+    const gap = Math.abs(f.natPct - f.adapPct);
+    doc.text(`Brecha: Δ ${gap}%`, x + 3, currentY + 25);
   });
 
-  currentY += 27;
+  currentY += 33;
 
-  // 3. Arquetipo Dominante y Secundario
+  // Diagnóstico de Desgaste
+  doc.setFillColor(241, 245, 249);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, currentY, contentWidth, 20, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Diagnóstico de Desgaste Conductual: ${natAdap.levelLabel}`, margin + 4, currentY + 5.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(51, 65, 85);
+  doc.text(natAdap.executiveDiagnosis, margin + 4, currentY + 10.5, { maxWidth: contentWidth - 8 });
+  doc.text(`Directriz: ${natAdap.recommendation}`, margin + 4, currentY + 16, { maxWidth: contentWidth - 8 });
+
+  currentY += 24;
+
+  // 3. Job-Fit Score %
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, currentY, contentWidth, 34, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(2, 132, 199);
+  doc.text(`COMPATIBILIDAD CON EL PUESTO (JOB-FIT): ${jobFitRes.benchmarkTitle.toUpperCase()}`, margin + 4, currentY + 5.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const fitColor = jobFitRes.fitLevel === 'Alto' ? [5, 150, 105] : jobFitRes.fitLevel === 'Medio' ? [217, 119, 6] : [190, 18, 60];
+  doc.setTextColor(fitColor[0], fitColor[1], fitColor[2]);
+  doc.text(`${jobFitRes.fitPercentage}% · Ajuste ${jobFitRes.fitLevel}`, margin + contentWidth - 4, currentY + 5.5, { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(51, 65, 85);
+  doc.text(jobFitRes.summary, margin + 4, currentY + 11.5, { maxWidth: contentWidth - 8 });
+
+  let jgX = margin + 4;
+  const jgColW = (contentWidth - 12) / 4;
+  jobFitRes.gaps.forEach((g) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${g.factor}: ${g.status}`, jgX, currentY + 23);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Real:${g.actualPercent}% / Ideal:${g.benchmarkPercent}%`, jgX, currentY + 28);
+    jgX += jgColW + 2;
+  });
+
+  currentY += 38;
+
+  // 4. Arquetipo
   if (archetype) {
     doc.setFillColor(241, 245, 249);
     doc.setDrawColor(203, 213, 225);
@@ -966,135 +1221,157 @@ export async function exportIndividualPdfReport({
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(255, 255, 255);
-    doc.text(dom, margin + 9.5, currentY + 12, { align: 'center' });
+    doc.text(archetype.dominant, margin + 9.5, currentY + 12, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
+    doc.setFontSize(9);
     doc.setTextColor(15, 23, 42);
-    doc.text(`Arquetipo Dominante: ${archetype.title}`, margin + 19, currentY + 7);
+    doc.text(`Arquetipo: ${archetype.title}`, margin + 19, currentY + 7);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(2, 132, 199);
-    doc.text(`Subtipo Secundario: Dimensión ${sec} (${dominantNames[sec].split('(')[0].trim()}) · ${archetype.subtitle}`, margin + 19, currentY + 12);
+    doc.text(archetype.subtitle, margin + 19, currentY + 12);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.8);
     doc.setTextColor(51, 65, 85);
     doc.text(archetype.description, margin + 4, currentY + 20, { maxWidth: contentWidth - 8 });
-
-    currentY += 32;
   }
 
-  // 4. Secciones Cualitativas (2x2 Grid)
-  if (archetype) {
-    const boxW = (contentWidth - 4) / 2;
-    const boxH = 43;
+  // --- HOJA 2: MANUAL PARA EL JEFE DIRECTO (DOs & DONTs) ---
+  doc.addPage();
+  drawIndHeader(
+    'MANUAL DE GESTIÓN Y LIDERAZGO PARA EL JEFE DIRECTO',
+    `Guía Ejecutiva de Bolsillo (DOs & DON'Ts) · ${collaborator.fullName} · ${company?.name || 'Cliente'}`
+  );
 
-    // Fortalezas
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(margin, currentY, boxW, boxH, 2, 2, 'FD');
+  let p2Y = 30;
 
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, p2Y, contentWidth, 18, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`DIRECTRICES DE SUPERVISIÓN Y MOTIVACIÓN PERSONALIZADAS`, margin + 4, p2Y + 6);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    `Pautas directivas para maximizar el engagement, evitar errores comunes de supervisión y potenciar el desempeño de ${collaborator.fullName}.`,
+    margin + 4,
+    p2Y + 12
+  );
+
+  p2Y += 22;
+
+  const p2ColW = (contentWidth - 6) / 2;
+  const p2ColH = 92;
+
+  // DOs
+  doc.setFillColor(240, 253, 244);
+  doc.setDrawColor(187, 247, 208);
+  doc.roundedRect(margin, p2Y, p2ColW, p2ColH, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(5, 150, 105);
+  doc.text('QUÉ SÍ HACER (DOs) · MAXIMIZA SU RENDIMIENTO', margin + 4, p2Y + 7);
+
+  let p2doY = p2Y + 14;
+  leadershipGuide.dos.forEach((item) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(5, 150, 105);
-    doc.text('PERSONALIDAD LABORAL Y FORTALEZAS', margin + 3.5, currentY + 5.5);
+    doc.text('✓', margin + 4, p2doY);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(51, 65, 85);
-    let strY = currentY + 10.5;
-    archetype.strengths.slice(0, 4).forEach((st) => {
-      doc.text(`• ${st}`, margin + 3.5, strY, { maxWidth: boxW - 7 });
-      strY += 7;
-    });
+    doc.setFontSize(6.8);
+    doc.setTextColor(30, 41, 59);
+    doc.text(item, margin + 9, p2doY, { maxWidth: p2ColW - 13 });
+    p2doY += 15;
+  });
 
-    // Comunicación
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(margin + boxW + 4, currentY, boxW, boxH, 2, 2, 'FD');
+  // DONTs
+  const p2RightX = margin + p2ColW + 6;
+  doc.setFillColor(255, 241, 242);
+  doc.setDrawColor(254, 205, 211);
+  doc.roundedRect(p2RightX, p2Y, p2ColW, p2ColH, 2, 2, 'FD');
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(2, 132, 199);
-    doc.text('ESTILO DE COMUNICACIÓN ÓPTIMO', margin + boxW + 7.5, currentY + 5.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(190, 18, 60);
+  doc.text("QUÉ NUNCA HACER (DON'Ts) · DESMOTIVA O PARALIZA", p2RightX + 4, p2Y + 7);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(51, 65, 85);
-    doc.text(archetype.communicationStyle, margin + boxW + 7.5, currentY + 10.5, { maxWidth: boxW - 10 });
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Cómo prefiere recibir retroalimentación:', margin + boxW + 7.5, currentY + 26);
-    doc.setFont('helvetica', 'normal');
-    let prefFeedback = '';
-    if (dom === 'D') prefFeedback = 'Directo al grano, con datos de impacto y metas claras.';
-    else if (dom === 'I') prefFeedback = 'Con calidez personal, resaltando lo positivo antes de ajustar.';
-    else if (dom === 'S') prefFeedback = 'Con calma, en privado y dando tiempo para procesar el cambio.';
-    else prefFeedback = 'Con datos precisos por escrito, lógica impecable y sin ambigüedades.';
-    doc.text(prefFeedback, margin + boxW + 7.5, currentY + 31, { maxWidth: boxW - 10 });
-
-    currentY += boxH + 4;
-
-    // Tensión
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(margin, currentY, boxW, boxH, 2, 2, 'FD');
-
+  let p2dontY = p2Y + 14;
+  leadershipGuide.donts.forEach((item) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(190, 18, 60);
-    doc.text('CONDUCTA BAJO PRESIÓN Y ESTRÉS', margin + 3.5, currentY + 5.5);
+    doc.text('✕', p2RightX + 4, p2dontY);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(51, 65, 85);
-    doc.text(archetype.underPressure, margin + 3.5, currentY + 10.5, { maxWidth: boxW - 7 });
+    doc.setFontSize(6.8);
+    doc.setTextColor(30, 41, 59);
+    doc.text(item, p2RightX + 9, p2dontY, { maxWidth: p2ColW - 13 });
+    p2dontY += 15;
+  });
 
-    doc.setFont('helvetica', 'bold');
-    doc.text('Cómo recuperar el equilibrio:', margin + 3.5, currentY + 25);
-    doc.setFont('helvetica', 'normal');
-    let eqStr = '';
-    if (dom === 'D') eqStr = 'Brindar autonomía para solucionar el obstáculo sin microgestión.';
-    else if (dom === 'I') eqStr = 'Espacios para dialogar y validar sus aportes creativos.';
-    else if (dom === 'S') eqStr = 'Garantizar estabilidad y reducir la incertidumbre inmediata.';
-    else eqStr = 'Dar tiempo para verificar datos y no forzar decisiones precipitadas.';
-    doc.text(eqStr, margin + 3.5, currentY + 30, { maxWidth: boxW - 7 });
+  p2Y += p2ColH + 6;
 
-    // Líder
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(margin + boxW + 4, currentY, boxW, boxH, 2, 2, 'FD');
+  // Factores Clave
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(margin, p2Y, contentWidth, 54, 2, 2, 'FD');
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(217, 119, 6);
-    doc.text('GUÍA PARA SU JEFE / LÍDER DIRECTO', margin + boxW + 7.5, currentY + 5.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(2, 132, 199);
+  doc.text('FACTORES CLAVE DE COMUNICACIÓN Y ENTORNO ÓPTIMO', margin + 4, p2Y + 6);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(51, 65, 85);
-    let recY = currentY + 10.5;
-    archetype.growthAreas.slice(0, 3).forEach((rec) => {
-      doc.text(`• ${rec}`, margin + boxW + 7.5, recY, { maxWidth: boxW - 10 });
-      recY += 8;
-    });
+  let p2SubY = p2Y + 13;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(15, 23, 42);
+  doc.text('• Cómo retroalimentarle óptimamente:', margin + 4, p2SubY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 65, 85);
+  doc.text(archetype?.communicationStyle || 'Directo y respetuoso.', margin + 48, p2SubY, { maxWidth: contentWidth - 52 });
 
-    doc.setFont('helvetica', 'bold');
-    doc.text('Entorno propicio:', margin + boxW + 7.5, currentY + 34.5);
-    doc.setFont('helvetica', 'normal');
-    doc.text(archetype.idealEnvironment, margin + boxW + 7.5, currentY + 38.5, { maxWidth: boxW - 10 });
+  p2SubY += 11;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('• Comportamiento bajo estrés severo:', margin + 4, p2SubY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 65, 85);
+  doc.text(archetype?.underPressure || 'Mantener calma y reducir presión.', margin + 48, p2SubY, { maxWidth: contentWidth - 52 });
+
+  p2SubY += 11;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('• Entorno físico y laboral preferido:', margin + 4, p2SubY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 65, 85);
+  doc.text(archetype?.idealEnvironment || 'Espacio estructurado.', margin + 48, p2SubY, { maxWidth: contentWidth - 52 });
+
+  p2SubY += 11;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('• Palancas principales de motivación:', margin + 4, p2SubY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 65, 85);
+  doc.text(leadershipGuide.motivationKeys.join(' · '), margin + 48, p2SubY, { maxWidth: contentWidth - 52 });
+
+  // Footers
+  const totalIndPages = (doc.internal as any).getNumberOfPages();
+  for (let i = 1; i <= totalIndPages; i++) {
+    doc.setPage(i);
+    drawIndFooter(i, totalIndPages);
   }
 
-  // Footer
-  doc.setDrawColor(226, 232, 240);
-  doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`DISC Enterprise · Evaluación Psicométrica · Licencia Corporativa`, margin, pageHeight - 7);
-  doc.text(`ID Registro: ${collaborator.id}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
-
-  // Descarga directa
   const cleanName = collaborator.fullName.replace(/[^a-zA-Z0-9_-]/g, '_');
   doc.save(`Ficha_DISC_${cleanName}.pdf`);
 }

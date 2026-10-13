@@ -9,6 +9,9 @@ import { AddCollaboratorModal } from './AddCollaboratorModal';
 import { IndividualReportModal } from '../common/IndividualReportModal';
 import { QRCodeModal } from '../admin/QRCodeModal';
 import { HistoricalComparisonView } from './HistoricalComparisonView';
+import { TeamSynergyView } from './TeamSynergyView';
+import { calculateNaturalVsAdapted } from '../../data/stressAndSynergy';
+import { JOB_BENCHMARKS, calculateJobFit, detectBenchmarkFromRole } from '../../data/jobFitBenchmarks';
 import {
   Users,
   CheckCircle2,
@@ -31,7 +34,9 @@ import {
   Building2,
   BarChart3,
   Loader2,
-  History
+  History,
+  Activity,
+  Sparkles
 } from 'lucide-react';
 
 export const CompanyPortal: React.FC = () => {
@@ -48,8 +53,11 @@ export const CompanyPortal: React.FC = () => {
     showToast
   } = useApp();
 
-  // Selected portal tab: 'dashboard' (Active campaign) | 'history' (Historical comparison)
-  const [portalTab, setPortalTab] = useState<'dashboard' | 'history'>('dashboard');
+  // Selected portal tab: 'dashboard' (Active campaign) | 'synergy' (Team synergy matrix) | 'history' (Historical comparison)
+  const [portalTab, setPortalTab] = useState<'dashboard' | 'synergy' | 'history'>('dashboard');
+
+  // Benchmark overrides per collaborator (allows HR to change target role on the fly)
+  const [benchmarkOverrides, setBenchmarkOverrides] = useState<Record<string, string>>({});
 
   // Selected filters
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending'>('all');
@@ -346,8 +354,8 @@ export const CompanyPortal: React.FC = () => {
 
       </div>
 
-      {/* 2. Pestañas de Navegación del Portal: Tablero de Campaña vs Comparativa Histórica */}
-      <div className="flex items-center gap-3 border-b border-slate-200">
+      {/* 2. Pestañas de Navegación del Portal: Tablero de Campaña vs Mapa de Sinergia vs Comparativa Histórica */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200">
         <button
           type="button"
           onClick={() => setPortalTab('dashboard')}
@@ -362,6 +370,24 @@ export const CompanyPortal: React.FC = () => {
           {activeCampaign && (
             <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
               {activeCampaign.accessCode}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setPortalTab('synergy')}
+          className={`pb-3 px-2 text-sm font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            portalTab === 'synergy'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-400 hover:text-slate-700'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Mapa de Sinergia y Dinámica Grupal</span>
+          {completedCollaborators.length > 1 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
+              {completedCollaborators.length} evaluados
             </span>
           )}
         </button>
@@ -383,7 +409,7 @@ export const CompanyPortal: React.FC = () => {
         </button>
       </div>
 
-      {portalTab === 'dashboard' ? (
+      {portalTab === 'dashboard' && (
         <>
           {/* 3. Métricas Clave (KPI Cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -653,39 +679,73 @@ export const CompanyPortal: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
               <tr>
-                <th className="py-3 px-5">Colaborador</th>
-                <th className="py-3 px-5">Departamento & Puesto</th>
-                <th className="py-3 px-5">Estado</th>
-                <th className="py-3 px-5">Arquetipo DISC</th>
-                <th className="py-3 px-5 text-center font-mono">Puntajes Netos</th>
-                <th className="py-3 px-5 text-right">Acción</th>
+                <th className="py-3 px-4">Colaborador</th>
+                <th className="py-3 px-4">Departamento & Puesto</th>
+                <th className="py-3 px-4">Puesto Benchmark Objetivo</th>
+                <th className="py-3 px-4">Estado</th>
+                <th className="py-3 px-4">Arquetipo & DISC</th>
+                <th className="py-3 px-4 text-center">Natural vs. Adaptado (Desgaste)</th>
+                <th className="py-3 px-4 text-center">Job-Fit %</th>
+                <th className="py-3 px-4 text-right">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredCollaborators.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={8} className="py-8 text-center text-slate-400">
                     No se encontraron colaboradores registrados con estos filtros.
                   </td>
                 </tr>
               ) : (
                 filteredCollaborators.map(collab => {
                   const isDone = collab.status === 'completed';
+                  const activeBenchmarkId =
+                    benchmarkOverrides[collab.id] ||
+                    collab.benchmarkId ||
+                    detectBenchmarkFromRole(collab.role, collab.department);
+
+                  let natAdap = null;
+                  let jobFitRes = null;
+                  if (isDone && collab.scores) {
+                    natAdap = calculateNaturalVsAdapted(collab.scores);
+                    jobFitRes = calculateJobFit(collab.scores, activeBenchmarkId, collab.department);
+                  }
 
                   return (
                     <tr key={collab.id} className="hover:bg-slate-50/80 transition-colors">
                       
-                      <td className="py-3.5 px-5">
+                      <td className="py-3 px-4">
                         <div className="font-semibold text-slate-900">{collab.fullName}</div>
                         <div className="font-mono text-[11px] text-slate-400">{collab.email}</div>
                       </td>
 
-                      <td className="py-3.5 px-5">
+                      <td className="py-3 px-4">
                         <div className="text-slate-800">{collab.department}</div>
                         <div className="text-slate-400 text-[11px]">{collab.role}</div>
                       </td>
 
-                      <td className="py-3.5 px-5">
+                      {/* Selector de Puesto Benchmark */}
+                      <td className="py-3 px-4">
+                        <select
+                          value={activeBenchmarkId}
+                          onChange={e => {
+                            setBenchmarkOverrides(prev => ({
+                              ...prev,
+                              [collab.id]: e.target.value
+                            }));
+                            showToast(`Benchmark de ${collab.fullName.split(' ')[0]} actualizado`);
+                          }}
+                          className="text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded-lg px-2 py-1 max-w-[170px] truncate outline-none focus:border-slate-900 cursor-pointer"
+                        >
+                          {JOB_BENCHMARKS.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.title}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      <td className="py-3 px-4">
                         {isDone ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -699,14 +759,17 @@ export const CompanyPortal: React.FC = () => {
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5">
+                      <td className="py-3 px-4">
                         {collab.archetype ? (
                           <div>
                             <div className="font-semibold text-slate-900">
                               {collab.archetype.title}
                             </div>
-                            <div className="text-[11px] text-slate-500 truncate max-w-xs">
-                              {collab.archetype.subtitle}
+                            <div className="font-mono text-[10px] text-slate-500 mt-0.5 space-x-1">
+                              <span className="text-rose-600 font-bold">D:{collab.scores?.dPercent}%</span>
+                              <span className="text-amber-600 font-bold">I:{collab.scores?.iPercent}%</span>
+                              <span className="text-emerald-600 font-bold">S:{collab.scores?.sPercent}%</span>
+                              <span className="text-blue-600 font-bold">C:{collab.scores?.cPercent}%</span>
                             </div>
                           </div>
                         ) : (
@@ -714,26 +777,64 @@ export const CompanyPortal: React.FC = () => {
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5 text-center font-mono text-xs tabular-nums">
-                        {collab.scores ? (
-                          <div className="space-x-1.5">
-                            <span className="text-rose-600 font-bold">D:{collab.scores.D > 0 ? `+${collab.scores.D}` : collab.scores.D}</span>
-                            <span className="text-amber-600 font-bold">I:{collab.scores.I > 0 ? `+${collab.scores.I}` : collab.scores.I}</span>
-                            <span className="text-emerald-600 font-bold">S:{collab.scores.S > 0 ? `+${collab.scores.S}` : collab.scores.S}</span>
-                            <span className="text-blue-600 font-bold">C:{collab.scores.C > 0 ? `+${collab.scores.C}` : collab.scores.C}</span>
+                      {/* Natural vs Adaptado / Índice de Desgaste */}
+                      <td className="py-3 px-4 text-center">
+                        {natAdap ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                natAdap.stressLevel === 'Normal'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : natAdap.stressLevel === 'Moderado'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}
+                              title={natAdap.executiveDiagnosis}
+                            >
+                              {natAdap.stressIndex}% · {natAdap.stressLevel}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              Nat:{natAdap.natural.dominantFactor} / Adap:{natAdap.adapted.dominantFactor}
+                            </span>
                           </div>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5 text-right">
+                      {/* Job-Fit Score Badge */}
+                      <td className="py-3 px-4 text-center">
+                        {jobFitRes ? (
+                          <span
+                            className={`inline-block text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                              jobFitRes.fitLevel === 'Alto'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : jobFitRes.fitLevel === 'Medio'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                            title={jobFitRes.summary}
+                          >
+                            {jobFitRes.fitPercentage}% · {jobFitRes.fitLevel}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
                         {isDone ? (
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setSelectedCollaboratorForModal(collab)}
-                              className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors inline-flex items-center gap-1"
+                              onClick={() => {
+                                const enrichedCollab: Collaborator = {
+                                  ...collab,
+                                  benchmarkId: activeBenchmarkId
+                                };
+                                setSelectedCollaboratorForModal(enrichedCollab);
+                              }}
+                              className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
                               title="Ver Ficha Psicométrica Completa"
                             >
                               <Eye className="w-3 h-3" />
@@ -743,13 +844,13 @@ export const CompanyPortal: React.FC = () => {
                               type="button"
                               onClick={() => {
                                 exportIndividualPdfReport({
-                                  collaborator: collab,
+                                  collaborator: { ...collab, benchmarkId: activeBenchmarkId },
                                   company: currentCompany,
                                   campaign: activeCampaign || undefined
                                 });
                                 showToast(`Ficha individual PDF descargada: ${collab.fullName}`);
                               }}
-                              className="px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-2xs"
+                              className="px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer"
                               title="Descargar Ficha Técnica en PDF"
                             >
                               <Download className="w-3 h-3 text-slate-600" />
@@ -763,7 +864,7 @@ export const CompanyPortal: React.FC = () => {
                               setSelectedCampaignCode(activeCampaign?.accessCode || '');
                               setActiveView('evaluator');
                             }}
-                            className="text-[11px] text-slate-500 hover:text-slate-900 hover:underline"
+                            className="text-[11px] text-slate-500 hover:text-slate-900 hover:underline cursor-pointer"
                           >
                             Iniciar Test
                           </button>
@@ -780,7 +881,13 @@ export const CompanyPortal: React.FC = () => {
 
       </div>
         </>
-      ) : (
+      )}
+
+      {portalTab === 'synergy' && (
+        <TeamSynergyView collaborators={campaignCollaborators} />
+      )}
+
+      {portalTab === 'history' && (
         <HistoricalComparisonView
           company={currentCompany}
           campaigns={campaigns}

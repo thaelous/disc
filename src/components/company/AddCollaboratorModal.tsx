@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { Campaign, Company } from '../../types';
 import { X, UserPlus, User, Mail, Building2, Briefcase } from 'lucide-react';
 
+import { JOB_BENCHMARKS } from '../../data/jobFitBenchmarks';
+
 interface AddCollaboratorModalProps {
   campaign: Campaign;
   company: Company;
@@ -22,6 +24,7 @@ export const AddCollaboratorModal: React.FC<AddCollaboratorModalProps> = ({
   const [email, setEmail] = useState('');
   const [department, setDepartment] = useState('Ventas y Comercial');
   const [role, setRole] = useState('Colaborador');
+  const [benchmarkId, setBenchmarkId] = useState('comercial');
 
   if (!isOpen) return null;
 
@@ -39,7 +42,8 @@ export const AddCollaboratorModal: React.FC<AddCollaboratorModalProps> = ({
         fullName: fullName.trim(),
         email: email.trim(),
         department: department.trim(),
-        role: role.trim()
+        role: role.trim(),
+        benchmarkId
       }
     ]);
 
@@ -117,7 +121,10 @@ export const AddCollaboratorModal: React.FC<AddCollaboratorModalProps> = ({
                 <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <select
                   value={department}
-                  onChange={e => setDepartment(e.target.value)}
+                  onChange={e => {
+                    const newDept = e.target.value;
+                    setDepartment(newDept);
+                  }}
                   className="w-full bg-white border border-slate-200 focus:border-slate-900 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 outline-none"
                 >
                   <option value="Ventas y Comercial">Ventas y Comercial</option>
@@ -145,6 +152,26 @@ export const AddCollaboratorModal: React.FC<AddCollaboratorModalProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+              Perfil / Benchmark Conductual Objetivo
+            </label>
+            <select
+              value={benchmarkId}
+              onChange={e => setBenchmarkId(e.target.value)}
+              className="w-full bg-white border border-slate-200 focus:border-slate-900 rounded-xl px-3 py-2.5 text-sm text-slate-900 outline-none cursor-pointer"
+            >
+              {JOB_BENCHMARKS.map(b => (
+                <option key={b.id} value={b.id}>
+                  {b.title} (D:{b.targetD}%, I:{b.targetI}%, S:{b.targetS}%, C:{b.targetC}%)
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Permite calcular el Job-Fit Score (%) y la brecha conductual esperada para la posición.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
