@@ -1,6 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Campaign, Company } from '../../types';
-import { X, Copy, Check, QrCode, ExternalLink, Download } from 'lucide-react';
+import {
+  getCampaignBaseUrl,
+  setCampaignBaseUrl,
+  getCampaignDirectUrl,
+  generateQRCodeSVG
+} from '../../utils/campaignUrlHelper';
+import {
+  X,
+  Copy,
+  Check,
+  QrCode,
+  ExternalLink,
+  Download,
+  Settings,
+  Globe,
+  RotateCcw,
+  Sparkles
+} from 'lucide-react';
 
 interface QRCodeModalProps {
   campaign: Campaign;
@@ -16,28 +33,65 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
   onOpenTest
 }) => {
   const [copied, setCopied] = useState(false);
+  const [svgHtml, setSvgHtml] = useState<string>('');
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [customBaseInput, setCustomBaseInput] = useState<string>(() => getCampaignBaseUrl());
+  const [currentDirectLink, setCurrentDirectLink] = useState<string>(() =>
+    getCampaignDirectUrl(campaign.accessCode)
+  );
 
-  const baseUrl = window.location.origin + window.location.pathname;
-  const directLink = `${baseUrl}?campana=${campaign.accessCode}`;
+  // Re-generate direct link whenever base changes
+  useEffect(() => {
+    const link = getCampaignDirectUrl(campaign.accessCode);
+    setCurrentDirectLink(link);
+
+    // Generate real, authentic QR code
+    generateQRCodeSVG(link)
+      .then(svg => setSvgHtml(svg))
+      .catch(err => {
+        console.error('Failed to generate QR svg:', err);
+      });
+  }, [campaign.accessCode]);
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(directLink);
+    navigator.clipboard.writeText(currentDirectLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const handleApplyCustomBase = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCampaignBaseUrl(customBaseInput.trim() || null);
+    const newLink = getCampaignDirectUrl(campaign.accessCode);
+    setCurrentDirectLink(newLink);
+    generateQRCodeSVG(newLink)
+      .then(svg => setSvgHtml(svg))
+      .catch(console.error);
+    setIsConfigOpen(false);
+  };
+
+  const handleResetToOrigin = () => {
+    setCampaignBaseUrl(null);
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setCustomBaseInput(origin);
+    const newLink = getCampaignDirectUrl(campaign.accessCode);
+    setCurrentDirectLink(newLink);
+    generateQRCodeSVG(newLink)
+      .then(svg => setSvgHtml(svg))
+      .catch(console.error);
+  };
+
   const handleDownloadSVG = () => {
-    const svgElement = document.getElementById('campaign-qr-svg');
-    if (!svgElement) return;
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    const downloadLink = document.createElement('a');
-    downloadLink.href = svgUrl;
-    downloadLink.download = `QR_${campaign.accessCode}.svg`;
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
+    if (!svgHtml) return;
+    const blob = new Blob([svgHtml], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `QR_${campaign.accessCode}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -51,117 +105,148 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
               <QrCode className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900">Código QR de la Campaña</h2>
+              <h2 className="text-sm font-bold text-slate-900">Código QR y Enlace de Campaña</h2>
               <p className="text-[11px] text-slate-500">Acceso móvil directo para evaluados</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsConfigOpen(!isConfigOpen)}
+              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+              title="Configurar dominio público o URL base"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
+
+        {/* Optional Domain Configuration Drawer */}
+        {isConfigOpen && (
+          <form
+            onSubmit={handleApplyCustomBase}
+            className="p-4 bg-blue-50/80 border-b border-blue-100 text-left text-xs space-y-2.5 animate-in slide-in-from-top-2 duration-150"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                <Globe className="w-3.5 h-3.5 text-blue-700" />
+                <span>Configurar Dominio Público Base</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetToOrigin}
+                className="text-[11px] text-blue-700 hover:underline flex items-center gap-1"
+                title="Restablecer a dominio del navegador"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Restablecer</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-blue-800/80">
+              Personaliza el dominio si tu aplicación está desplegada en Netlify, Vercel o un dominio corporativo:
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customBaseInput}
+                onChange={e => setCustomBaseInput(e.target.value)}
+                placeholder="ej. https://tu-dominio.netlify.app"
+                className="flex-1 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-mono outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-2xs text-xs shrink-0"
+              >
+                Aplicar
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Content */}
         <div className="p-6 text-center space-y-4">
           <div>
-            <div className="font-mono text-base font-bold text-slate-900">
-              {campaign.accessCode}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200 font-mono text-sm font-bold">
+              <span>{campaign.accessCode}</span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 mt-1.5">
               {campaign.title} {company ? `· ${company.name}` : ''}
             </p>
           </div>
 
-          {/* QR Code Container */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl inline-block shadow-inner mx-auto">
-            <svg
-              id="campaign-qr-svg"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 200 200"
-              className="w-44 h-44 text-slate-950"
-            >
-              <rect width="200" height="200" fill="#ffffff" />
-              
-              {/* Finders */}
-              <rect x="20" y="20" width="50" height="50" rx="8" fill="none" stroke="#0f172a" strokeWidth="10" />
-              <rect x="35" y="35" width="20" height="20" rx="3" fill="#0f172a" />
-
-              <rect x="130" y="20" width="50" height="50" rx="8" fill="none" stroke="#0f172a" strokeWidth="10" />
-              <rect x="145" y="35" width="20" height="20" rx="3" fill="#0f172a" />
-
-              <rect x="20" y="130" width="50" height="50" rx="8" fill="none" stroke="#0f172a" strokeWidth="10" />
-              <rect x="35" y="145" width="20" height="20" rx="3" fill="#0f172a" />
-
-              {/* Authentic Matrix Modules */}
-              <rect x="80" y="25" width="10" height="10" fill="#0f172a" />
-              <rect x="95" y="25" width="10" height="20" fill="#0f172a" />
-              <rect x="110" y="35" width="10" height="10" fill="#0f172a" />
-              
-              <rect x="80" y="55" width="25" height="10" fill="#0f172a" />
-              <rect x="115" y="55" width="10" height="10" fill="#0f172a" />
-
-              <rect x="25" y="80" width="10" height="10" fill="#0f172a" />
-              <rect x="45" y="80" width="20" height="10" fill="#0f172a" />
-              <rect x="75" y="75" width="12" height="12" fill="#2563eb" />
-              <rect x="92" y="75" width="15" height="15" fill="#0f172a" />
-              <rect x="112" y="85" width="12" height="12" fill="#0f172a" />
-              <rect x="135" y="80" width="20" height="10" fill="#0f172a" />
-              <rect x="165" y="80" width="10" height="20" fill="#0f172a" />
-
-              <rect x="88" y="95" width="24" height="24" rx="4" fill="#0f172a" />
-              <text x="100" y="111" fill="#ffffff" fontSize="11" fontWeight="bold" textAnchor="middle" fontFamily="sans-serif">D</text>
-
-              <rect x="80" y="125" width="15" height="15" fill="#0f172a" />
-              <rect x="105" y="125" width="10" height="20" fill="#0f172a" />
-              <rect x="125" y="125" width="15" height="10" fill="#0f172a" />
-              <rect x="150" y="125" width="20" height="10" fill="#0f172a" />
-
-              <rect x="80" y="150" width="20" height="10" fill="#0f172a" />
-              <rect x="110" y="150" width="15" height="15" fill="#0f172a" />
-              <rect x="135" y="145" width="10" height="25" fill="#0f172a" />
-              <rect x="155" y="150" width="15" height="10" fill="#0f172a" />
-              <rect x="155" y="165" width="20" height="10" fill="#0f172a" />
-            </svg>
+          {/* QR Code Container with authentic SVG rendered */}
+          <div className="bg-white border-2 border-slate-200 p-4 rounded-2xl inline-block shadow-inner mx-auto">
+            {svgHtml ? (
+              <div
+                className="w-48 h-48 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+                dangerouslySetInnerHTML={{ __html: svgHtml }}
+              />
+            ) : (
+              <div className="w-48 h-48 flex items-center justify-center text-xs text-slate-400">
+                Generando Código QR...
+              </div>
+            )}
           </div>
 
-          <p className="text-xs text-slate-500">
-            Escanea desde cualquier teléfono para abrir la prueba móvil de inmediato.
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-700 flex items-center justify-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span>Escaneo móvil inmediato</span>
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Apunta la cámara del celular al código QR para cargar la evaluación con la campaña precargada.
+            </p>
+          </div>
 
-          {/* Copy Link Input */}
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 text-left">
-            <input
-              type="text"
-              readOnly
-              value={directLink}
-              className="bg-transparent text-xs text-slate-700 font-mono flex-1 outline-none truncate px-1"
-            />
-            <button
-              onClick={handleCopyLink}
-              className="px-3 py-1.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copiado' : 'Copiar'}</span>
-            </button>
+          {/* Clean Direct Link Box */}
+          <div className="space-y-1 text-left">
+            <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+              Enlace Directo de la Campaña:
+            </label>
+            <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+              <input
+                type="text"
+                readOnly
+                value={currentDirectLink}
+                className="bg-transparent text-xs text-slate-700 font-mono flex-1 outline-none truncate px-1 select-all"
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="px-3 py-1.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copied ? 'Copiado' : 'Copiar'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center justify-between gap-3 pt-2">
             <button
+              type="button"
               onClick={handleDownloadSVG}
-              className="w-1/2 py-2.5 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
+              disabled={!svgHtml}
+              className="w-1/2 py-2.5 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 text-slate-600" />
               <span>Descargar SVG</span>
             </button>
+            
+            {/* Abrir Test Móvil (Internal navigation without opening new tabs) */}
             <button
+              type="button"
               onClick={() => {
                 onOpenTest(campaign.accessCode);
                 onClose();
               }}
-              className="w-1/2 py-2.5 px-3 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+              className="w-1/2 py-2.5 px-3 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Abrir Test Móvil</span>

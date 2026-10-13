@@ -197,18 +197,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [selectedCompanyId]);
 
-  // Sync with URL query parameter ?campana=CODIGO
+  // Sync with URL query parameter ?campana=CODIGO or ?campaign=CODIGO
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const codeFromUrl = params.get('campana');
-    if (codeFromUrl) {
-      setSelectedCampaignCode(codeFromUrl.toUpperCase());
-      const match = campaigns.find(c => c.accessCode.toUpperCase() === codeFromUrl.toUpperCase());
-      if (match) {
-        setSelectedCompanyId(match.companyId);
-      }
+    const codeFromUrl = params.get('campana') || params.get('campaign');
+    if (codeFromUrl && codeFromUrl.trim()) {
+      const normalizedCode = codeFromUrl.trim().toUpperCase();
+      setSelectedCampaignCode(normalizedCode);
+      // Direct user automatically to the Evaluator View (Cuestionario DISC)
+      setActiveView('evaluator');
+
+      // Preload and validate against Firestore immediately
+      findCampaignByCode(normalizedCode)
+        .then(found => {
+          if (found) {
+            setCampaigns(prev => {
+              if (prev.some(c => c.id === found.id)) return prev;
+              return [found, ...prev];
+            });
+            setSelectedCompanyId(found.companyId);
+            showToast(`Campaña autoverificada: ${found.title} (${found.accessCode})`);
+          } else {
+            showToast(`Campaña ${normalizedCode} precargada para evaluación.`);
+          }
+        })
+        .catch(err => {
+          console.warn('Error al verificar campaña desde URL:', err);
+        });
     }
-  }, [campaigns]);
+  }, []);
 
   // Method to check campaign code directly against Firestore
   const verifyCodeInFirestore = async (code: string): Promise<Campaign | null> => {

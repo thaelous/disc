@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CorporateLogo } from '../common/CorporateLogo';
 import { SuperAdminModal } from '../auth/SuperAdminModal';
+import { TourTriggerButton } from '../common/TourTriggerButton';
 import { Shield, LogOut } from 'lucide-react';
 
 export const TopNavigation: React.FC = () => {
@@ -27,8 +28,16 @@ export const TopNavigation: React.FC = () => {
             </div>
           </div>
 
-          {/* A la derecha: Botón discreto outline "Acceso Super Admin" o "Cerrar Sesión" */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          {/* A la derecha: Botón de Tutorial, Cambiar Código y Acceso Super Admin */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Botón de Tutorial en Cabecera si aplica */}
+            {(activeView === 'company' || activeView === 'evaluator') && (
+              <TourTriggerButton
+                label="¿Cómo funciona? (Ver Tutorial)"
+                variant="header"
+              />
+            )}
+
             {activeView === 'admin' ? (
               <div className="flex items-center gap-2">
                 {adminEmail && (

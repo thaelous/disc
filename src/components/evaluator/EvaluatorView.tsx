@@ -19,8 +19,12 @@ import {
   FileText,
   Check,
   Minus,
-  Plus
+  Plus,
+  HelpCircle,
+  Smartphone,
+  Maximize2
 } from 'lucide-react';
+import { GuidedTour, TourStep } from '../common/GuidedTour';
 
 export const EvaluatorView: React.FC = () => {
   const {
@@ -29,6 +33,7 @@ export const EvaluatorView: React.FC = () => {
     collaborators,
     selectedCampaignCode,
     setSelectedCampaignCode,
+    verifyCodeInFirestore,
     submitEvaluation,
     setActiveView
   } = useApp();
@@ -36,11 +41,30 @@ export const EvaluatorView: React.FC = () => {
   // Test session state
   const [stage, setStage] = useState<'onboarding' | 'test' | 'completed'>('onboarding');
   const [campaignCodeInput, setCampaignCodeInput] = useState<string>(selectedCampaignCode);
+  const [isEditingCode, setIsEditingCode] = useState<boolean>(!selectedCampaignCode);
   const [fullName, setFullName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [department, setDepartment] = useState<string>('Ventas y Comercial');
   const [role, setRole] = useState<string>('Colaborador');
   const [selectedPendingId, setSelectedPendingId] = useState<string>('');
+
+  // Synchronize campaign code whenever selectedCampaignCode changes
+  React.useEffect(() => {
+    if (selectedCampaignCode) {
+      setCampaignCodeInput(selectedCampaignCode.toUpperCase());
+    }
+  }, [selectedCampaignCode]);
+
+  // If campaign not in local list, automatically verify against Firestore
+  React.useEffect(() => {
+    const code = campaignCodeInput.trim().toUpperCase();
+    if (code) {
+      const match = campaigns.find(c => c.accessCode.toUpperCase() === code);
+      if (!match) {
+        verifyCodeInFirestore(code);
+      }
+    }
+  }, [campaignCodeInput, campaigns, verifyCodeInFirestore]);
 
   // 28-question answers state
   const [currentBlockIndex, setCurrentBlockIndex] = useState<number>(0);
@@ -55,6 +79,64 @@ export const EvaluatorView: React.FC = () => {
 
   const [showFullReportModal, setShowFullReportModal] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
+  const [simulatorMode, setSimulatorMode] = useState<'mobile' | 'full'>('mobile');
+
+  // Auto-launch Guided Tour for first-time evaluators
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const tourSeen = localStorage.getItem('disc_tour_candidate_viewed_v1');
+      if (!tourSeen) {
+        const timer = setTimeout(() => {
+          setIsTourOpen(true);
+        }, 700);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
+
+  // Global listener to trigger tour from TopNavigation or anywhere
+  React.useEffect(() => {
+    const handleOpenTour = () => setIsTourOpen(true);
+    window.addEventListener('open-evaluator-tour', handleOpenTour);
+    return () => window.removeEventListener('open-evaluator-tour', handleOpenTour);
+  }, []);
+
+  // Guided Tour Steps Configuration for Evaluator / Candidate View
+  const evaluatorTourSteps: TourStep[] = useMemo(() => [
+    {
+      id: 'welcome',
+      title: 'Bienvenida e Instrucciones Clave',
+      description: 'Bienvenido a tu Evaluación Conductual DISC. Esta prueba no califica conocimientos ni respuestas buenas o malas; describe tus preferencias naturales de trabajo.',
+      targetSelector: '#tour-candidate-welcome',
+      placement: 'bottom',
+      icon: <Sparkles className="w-4 h-4 text-blue-600" />
+    },
+    {
+      id: 'forced-choice',
+      title: 'Formato de Elección Forzada',
+      description: 'En cada bloque verás 4 adjetivos o frases. Tu tarea es elegir obligatoriamente 1 opción que MÁS te describa (+) y 1 opción que MENOS te describa (-).',
+      targetSelector: '#tour-candidate-block',
+      placement: 'bottom',
+      icon: <Plus className="w-4 h-4 text-emerald-600" />
+    },
+    {
+      id: 'exclusivity-rule',
+      title: 'Regla de Exclusividad',
+      description: "No puedes seleccionar 'MÁS' y 'MENOS' en la misma frase. Responde con espontaneidad y pensando en cómo actúas en tu día a día.",
+      targetSelector: '#tour-candidate-exclusivity',
+      placement: 'top',
+      icon: <Check className="w-4 h-4 text-indigo-600" />
+    },
+    {
+      id: 'progress',
+      title: 'Barra de Progreso y Envío',
+      description: 'Sigue el avance en la barra superior hasta completar los reactivos. Al finalizar, tu reporte psicométrico se procesará de forma inmediata.',
+      targetSelector: '#tour-candidate-progress',
+      placement: 'top',
+      icon: <Clock className="w-4 h-4 text-purple-600" />
+    }
+  ], []);
 
   // Active campaign detection
   const currentCampaign = useMemo(() => {
@@ -224,10 +306,21 @@ export const EvaluatorView: React.FC = () => {
         <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden">
           
           {/* Header */}
-          <div className="p-6 sm:p-8 bg-slate-50/70 border-b border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-600 mb-1">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Evaluación Psicométrica DISC</span>
+          <div id="tour-candidate-welcome" className="p-6 sm:p-8 bg-slate-50/70 border-b border-slate-100">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-600">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Evaluación Psicométrica DISC</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTourOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl shadow-2xs transition-all cursor-pointer"
+                title="Ver tutorial e instrucciones paso a paso"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+                <span>¿Cómo funciona? (Ver Tutorial)</span>
+              </button>
             </div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
               Test Conductual Organizacional
@@ -239,58 +332,121 @@ export const EvaluatorView: React.FC = () => {
 
           <div className="p-6 sm:p-8 space-y-5">
             
-            {/* Campaign Selection */}
+            {/* Campaign Selection & Preloaded Verification */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Código de Campaña
-              </label>
-              <input
-                type="text"
-                value={campaignCodeInput}
-                onChange={e => {
-                  setCampaignCodeInput(e.target.value.toUpperCase());
-                  setSelectedCampaignCode(e.target.value.toUpperCase());
-                }}
-                placeholder="Ej. DISC-2026-INNOVA"
-                className="w-full bg-white border border-slate-200 focus:border-slate-900 focus:ring-1 focus:ring-slate-900 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 placeholder:font-normal placeholder-slate-400 outline-none transition-all"
-              />
-
-              {/* Status Info Box */}
-              {currentCampaign && campaignStatusInfo && (
-                <div className={`mt-3 p-3.5 rounded-xl border text-xs ${
-                  campaignStatusInfo.status === 'expired'
-                    ? 'bg-rose-50 border-rose-200 text-rose-800'
-                    : campaignStatusInfo.status === 'pending'
-                    ? 'bg-amber-50 border-amber-200 text-amber-800'
-                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                }`}>
-                  <div className="flex items-start gap-2.5">
-                    {campaignStatusInfo.status === 'expired' ? (
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <Clock className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
-                    )}
-                    <div>
-                      <div className="font-bold text-slate-900">
-                        {currentCampaign.title} · {campaignCompany?.name}
+              {currentCampaign && !isEditingCode ? (
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
+                        <CheckCircle2 className="w-4 h-4" />
                       </div>
-                      <div className="mt-0.5 text-xs">
-                        {campaignStatusInfo.status === 'expired' ? (
-                          <span className="font-semibold text-rose-700">
-                            Aviso: Periodo concluido el {campaignStatusInfo.expiresAtFormatted}.
+                      <div>
+                        <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                          <span>Campaña Validada y Conectada</span>
+                          <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-semibold px-2 py-0.5 rounded-full">
+                            Autocargada
                           </span>
-                        ) : campaignStatusInfo.status === 'pending' ? (
-                          <span>
-                            Vigencia de <strong>{campaignStatusInfo.totalDays} días</strong> lista. Se activará en la 1ª evaluación.
-                          </span>
-                        ) : (
-                          <span>
-                            Campaña activa: <strong>{campaignStatusInfo.daysRemaining} días restantes</strong> (vence el {campaignStatusInfo.expiresAtFormatted}).
-                          </span>
-                        )}
+                        </div>
+                        <p className="text-[11px] text-emerald-800">
+                          {currentCampaign.title} {campaignCompany ? `· ${campaignCompany.name}` : ''}
+                        </p>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingCode(true)}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-900 underline font-medium cursor-pointer"
+                    >
+                      Cambiar
+                    </button>
                   </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-emerald-200/60 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-emerald-700 font-medium">Código:</span>
+                      <span className="font-mono font-bold text-emerald-950 bg-white/80 px-2 py-0.5 rounded-md border border-emerald-200">
+                        {currentCampaign.accessCode}
+                      </span>
+                    </div>
+                    {campaignStatusInfo && (
+                      <div className="text-[11px] text-emerald-800">
+                        {campaignStatusInfo.status === 'expired' ? (
+                          <span className="text-rose-600 font-semibold">Campaña Vencida</span>
+                        ) : campaignStatusInfo.status === 'pending' ? (
+                          <span>Vigencia: {campaignStatusInfo.totalDays} días (inicia al primer test)</span>
+                        ) : (
+                          <span>Vigente: {campaignStatusInfo.daysRemaining} días restantes</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                      Código de Campaña
+                    </label>
+                    {currentCampaign && (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingCode(false)}
+                        className="text-[11px] text-blue-600 hover:underline cursor-pointer"
+                      >
+                        Usar campaña validada
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={campaignCodeInput}
+                    onChange={e => {
+                      setCampaignCodeInput(e.target.value.toUpperCase());
+                      setSelectedCampaignCode(e.target.value.toUpperCase());
+                    }}
+                    placeholder="Ej. DISC-2026-INNOVA"
+                    className="w-full bg-white border border-slate-200 focus:border-slate-900 focus:ring-1 focus:ring-slate-900 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 placeholder:font-normal placeholder-slate-400 outline-none transition-all"
+                  />
+
+                  {/* Status Info Box */}
+                  {currentCampaign && campaignStatusInfo && (
+                    <div className={`mt-3 p-3.5 rounded-xl border text-xs ${
+                      campaignStatusInfo.status === 'expired'
+                        ? 'bg-rose-50 border-rose-200 text-rose-800'
+                        : campaignStatusInfo.status === 'pending'
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    }`}>
+                      <div className="flex items-start gap-2.5">
+                        {campaignStatusInfo.status === 'expired' ? (
+                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <Clock className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            {currentCampaign.title} · {campaignCompany?.name}
+                          </div>
+                          <div className="mt-0.5 text-xs">
+                            {campaignStatusInfo.status === 'expired' ? (
+                              <span className="font-semibold text-rose-700">
+                                Aviso: Periodo concluido el {campaignStatusInfo.expiresAtFormatted}.
+                              </span>
+                            ) : campaignStatusInfo.status === 'pending' ? (
+                              <span>
+                                Vigencia de <strong>{campaignStatusInfo.totalDays} días</strong> lista. Se activará en la 1ª evaluación.
+                              </span>
+                            ) : (
+                              <span>
+                                Campaña activa: <strong>{campaignStatusInfo.daysRemaining} días restantes</strong> (vence el {campaignStatusInfo.expiresAtFormatted}).
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -385,10 +541,19 @@ export const EvaluatorView: React.FC = () => {
             </div>
 
             {/* Test Instructions Box */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-1">
-              <div className="font-bold text-slate-900">Instrucciones del Cuestionario:</div>
-              <p>• En cada uno de los 28 bloques selecciona la palabra que <strong>MÁS</strong> te describe (+1) y la que <strong>MENOS</strong> te describe (-1).</p>
-              <p>• No hay respuestas correctas ni incorrectas: responde con tu comportamiento laboral habitual.</p>
+            <div id="tour-candidate-block" className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-2">
+              <div className="font-bold text-slate-900 flex items-center justify-between">
+                <span>Instrucciones del Cuestionario:</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md">
+                  Elección Forzada
+                </span>
+              </div>
+              <p>• En cada uno de los 28 bloques selecciona la opción que <strong>MÁS</strong> te describe (+) y la que <strong>MENOS</strong> te describe (-).</p>
+              
+              <div id="tour-candidate-exclusivity" className="p-2.5 bg-white border border-slate-200 rounded-lg space-y-1">
+                <div className="font-semibold text-slate-800">Regla de Exclusividad:</div>
+                <p className="text-slate-600">No puedes seleccionar &quot;MÁS&quot; y &quot;MENOS&quot; en el mismo reactivo ni dejar reactivos sin responder. No hay respuestas buenas ni malas: responde con tu comportamiento laboral habitual.</p>
+              </div>
             </div>
 
             {validationError && (
@@ -398,15 +563,21 @@ export const EvaluatorView: React.FC = () => {
               </div>
             )}
 
-            {/* Start Button */}
-            <button
-              onClick={startTest}
-              disabled={!currentCampaign || campaignStatusInfo?.status === 'expired'}
-              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm"
-            >
-              <span>Comenzar Evaluación DISC</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {/* Start Button & Confidentiality */}
+            <div id="tour-candidate-progress" className="space-y-2">
+              <button
+                onClick={startTest}
+                disabled={!currentCampaign || campaignStatusInfo?.status === 'expired'}
+                className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm cursor-pointer"
+              >
+                <span>Comenzar Evaluación DISC</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <p className="text-[11px] text-center text-slate-400 flex items-center justify-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Resultados confidenciales procesados con rigor psicométrico inmediato</span>
+              </p>
+            </div>
 
           </div>
         </div>
@@ -414,17 +585,61 @@ export const EvaluatorView: React.FC = () => {
 
       {/* STAGE 2: 28-QUESTION QUESTIONNAIRE */}
       {stage === 'test' && currentBlock && (
-        <div className="space-y-4">
+        <div className={`space-y-4 transition-all duration-300 ${simulatorMode === 'mobile' ? 'max-w-md mx-auto' : 'max-w-2xl mx-auto'}`}>
           
+          {/* Top Simulator Mode Control & Tutorial Action */}
+          <div id="tour-candidate-welcome" className="flex items-center justify-between px-1 py-1">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setSimulatorMode('mobile')}
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                  simulatorMode === 'mobile'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+                title="Alternar a vista simulador móvil"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Modo Móvil</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSimulatorMode('full')}
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                  simulatorMode === 'full'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+                title="Alternar a vista pantalla completa"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Pantalla Completa</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsTourOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+              title="Ver tutorial guiado interactivo"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+              <span>¿Cómo funciona? (Ver Tutorial)</span>
+            </button>
+          </div>
+
           {/* Progress Header */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div id="tour-candidate-progress" className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-slate-900">Bloque {currentBlockIndex + 1} de 28</span>
                 <span>·</span>
                 <span className="font-mono tabular-nums text-slate-600">{progressPercent}%</span>
               </div>
-              <div>{answeredCount} de 28 completadas</div>
+              <div className="flex items-center gap-2">
+                <div>{answeredCount} de 28 completadas</div>
+              </div>
             </div>
             
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -436,7 +651,7 @@ export const EvaluatorView: React.FC = () => {
           </div>
 
           {/* Question Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-md p-6 space-y-5">
+          <div id="tour-candidate-block" className="bg-white border border-slate-200 rounded-2xl shadow-md p-6 space-y-5">
             
             <div>
               <div className="text-xs uppercase tracking-wider font-bold text-slate-500">
@@ -447,8 +662,8 @@ export const EvaluatorView: React.FC = () => {
               </p>
             </div>
 
-            {/* Options List */}
-            <div className="space-y-2.5">
+            {/* Options List with Exclusivity Selectors */}
+            <div id="tour-candidate-exclusivity" className="space-y-2.5">
               {currentBlock.options.map(option => {
                 const isMost = currentAnswer.mostOptionId === option.id;
                 const isLeast = currentAnswer.leastOptionId === option.id;
@@ -473,7 +688,7 @@ export const EvaluatorView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleSelectOption(option.id, 'most')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                           isMost
                             ? 'bg-emerald-600 text-white shadow-sm'
                             : 'bg-white text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200'
@@ -487,7 +702,7 @@ export const EvaluatorView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleSelectOption(option.id, 'least')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                           isLeast
                             ? 'bg-rose-600 text-white shadow-sm'
                             : 'bg-white text-slate-600 hover:text-rose-700 hover:bg-rose-50 border border-slate-200'
@@ -504,10 +719,10 @@ export const EvaluatorView: React.FC = () => {
               })}
             </div>
 
-            {/* Hint message */}
-            <div className="text-xs text-center py-1">
+            {/* Hint message & Rules Validation */}
+            <div className="text-xs text-center py-2 px-3 bg-slate-50 border border-slate-200/80 rounded-xl">
               {!currentAnswer.mostOptionId && !currentAnswer.leastOptionId && (
-                <span className="text-slate-400">Selecciona una opción MÁS (+) y una MENOS (-).</span>
+                <span className="text-slate-500 font-medium">Selecciona una opción MÁS (+) y una MENOS (-).</span>
               )}
               {currentAnswer.mostOptionId && !currentAnswer.leastOptionId && (
                 <span className="text-amber-600 font-medium">Falta marcar la opción MENOS (-).</span>
@@ -529,7 +744,7 @@ export const EvaluatorView: React.FC = () => {
                 type="button"
                 onClick={handlePrevBlock}
                 disabled={currentBlockIndex === 0}
-                className="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-900 disabled:opacity-30 flex items-center gap-1.5"
+                className="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-900 disabled:opacity-30 flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Anterior</span>
@@ -539,7 +754,7 @@ export const EvaluatorView: React.FC = () => {
                 type="button"
                 onClick={handleNextBlock}
                 disabled={!isCurrentBlockComplete || isSubmitting}
-                className={`px-5 py-2.5 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all ${
+                className={`px-5 py-2.5 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
                   isCurrentBlockComplete && !isSubmitting
                     ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-sm'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'
@@ -705,6 +920,15 @@ export const EvaluatorView: React.FC = () => {
 
         </div>
       )}
+
+      {/* Interactive Guided Onboarding Tour for Evaluator */}
+      <GuidedTour
+        steps={evaluatorTourSteps}
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        storageKey="disc_tour_candidate_viewed_v1"
+        tourName="Evaluación DISC"
+      />
 
     </div>
   );

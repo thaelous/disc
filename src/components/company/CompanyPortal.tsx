@@ -36,8 +36,10 @@ import {
   Loader2,
   History,
   Activity,
-  Sparkles
+  Sparkles,
+  HelpCircle
 } from 'lucide-react';
+import { GuidedTour, TourStep } from '../common/GuidedTour';
 
 export const CompanyPortal: React.FC = () => {
   const {
@@ -70,6 +72,71 @@ export const CompanyPortal: React.FC = () => {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [selectedCollaboratorForModal, setSelectedCollaboratorForModal] = useState<Collaborator | null>(null);
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  // Auto-launch Guided Tour on first visit if not seen before
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const tourSeen = localStorage.getItem('disc_tour_company_viewed_v1');
+      if (!tourSeen && !isLoading) {
+        const timer = setTimeout(() => {
+          setIsTourOpen(true);
+        }, 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isLoading]);
+
+  // Global listener to trigger tour from TopNavigation or anywhere
+  React.useEffect(() => {
+    const handleOpenTour = () => setIsTourOpen(true);
+    window.addEventListener('open-company-tour', handleOpenTour);
+    return () => window.removeEventListener('open-company-tour', handleOpenTour);
+  }, []);
+
+  // Guided Tour Steps Configuration for Company Portal
+  const companyTourSteps: TourStep[] = useMemo(() => [
+    {
+      id: 'metrics',
+      title: 'Métricas Clave de la Campaña',
+      description: 'Aquí monitoreas en tiempo real cuántos colaboradores han completado su evaluación y la tasa de participación de tu campaña.',
+      targetSelector: '#tour-metrics',
+      placement: 'bottom',
+      icon: <Users className="w-4 h-4 text-blue-600" />
+    },
+    {
+      id: 'qr-code',
+      title: 'Código y QR de Difusión',
+      description: 'Haz clic aquí para obtener el código QR y enlace directo. Compártelo con tu personal por WhatsApp, correo o póster para que respondan desde su celular sin contraseñas.',
+      targetSelector: '#tour-qr-broadcast',
+      placement: 'bottom',
+      icon: <QrCode className="w-4 h-4 text-indigo-600" />
+    },
+    {
+      id: 'collaborators-mgmt',
+      title: 'Gestión de Colaboradores',
+      description: 'Registra a tus evaluados individualmente o descarga nuestra plantilla oficial de Excel para cargarlos a todos en un solo clic.',
+      targetSelector: '#tour-collab-management',
+      placement: 'bottom',
+      icon: <UserPlus className="w-4 h-4 text-emerald-600" />
+    },
+    {
+      id: 'disc-charts',
+      title: 'Analítica y Mapa DISC',
+      description: 'Visualiza la radiografía conductual de tu equipo: distribución de talentos, compatibilidad y alertas tempranas de fricción.',
+      targetSelector: '#tour-analytics-disc',
+      placement: 'top',
+      icon: <Brain className="w-4 h-4 text-purple-600" />
+    },
+    {
+      id: 'executive-reports',
+      title: 'Descarga de Reportes Ejecutivos',
+      description: 'Descarga el Reporte Maestro consolidado con diseño corporativo y las fichas individuales completas para la toma de decisiones directivas.',
+      targetSelector: '#tour-reports-download',
+      placement: 'bottom',
+      icon: <FileText className="w-4 h-4 text-rose-600" />
+    }
+  ], []);
 
   // Current company
   const currentCompany = useMemo(() => {
@@ -298,54 +365,73 @@ export const CompanyPortal: React.FC = () => {
           {/* Grupo Izquierdo */}
           <div className="flex flex-wrap items-center gap-2">
             
-            {/* Botón primario: + Registrar Colaborador */}
-            <button
-              onClick={() => setIsAddCollaboratorOpen(true)}
-              className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-sm transition-all flex items-center gap-1.5"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>+ Registrar Colaborador</span>
-            </button>
+            {/* Gestión de Colaboradores: + Registrar y Carga Masiva */}
+            <div id="tour-collab-management" className="flex flex-wrap items-center gap-2">
+              {/* Botón primario: + Registrar Colaborador */}
+              <button
+                onClick={() => setIsAddCollaboratorOpen(true)}
+                className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+ Registrar Colaborador</span>
+              </button>
 
-            {/* Botón secundario: Carga Masiva Excel */}
-            <button
-              onClick={() => setIsBulkModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
-            >
-              <Upload className="w-3.5 h-3.5 text-slate-500" />
-              <span>Carga Masiva Excel</span>
-            </button>
+              {/* Botón secundario: Carga Masiva Excel */}
+              <button
+                onClick={() => setIsBulkModalOpen(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 text-slate-500" />
+                <span>Carga Masiva Excel</span>
+              </button>
+            </div>
 
-            {/* Botón: Código QR de Campaña */}
-            <button
-              onClick={() => setIsQRModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
-            >
-              <QrCode className="w-3.5 h-3.5 text-slate-500" />
-              <span>Código QR de Campaña</span>
-            </button>
+            {/* Código y QR de Difusión */}
+            <div id="tour-qr-broadcast">
+              <button
+                onClick={() => setIsQRModalOpen(true)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5 text-slate-500" />
+                <span>Código QR de Campaña</span>
+              </button>
+            </div>
 
           </div>
 
           {/* Grupo Derecho */}
           <div className="flex flex-wrap items-center gap-2">
             
-            {/* Botón ejecutivo: Reporte PDF */}
-            <button
-              onClick={handleOpenPdfReport}
-              className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-600/10 transition-all flex items-center gap-1.5"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Reporte PDF</span>
-            </button>
+            {/* Descarga de Reportes Ejecutivos */}
+            <div id="tour-reports-download" className="flex flex-wrap items-center gap-2">
+              {/* Botón ejecutivo: Reporte PDF */}
+              <button
+                onClick={handleOpenPdfReport}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-600/10 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Reporte PDF</span>
+              </button>
 
-            {/* Botón: Exportar Excel (.xlsx) */}
+              {/* Botón: Exportar Excel (.xlsx) */}
+              <button
+                onClick={handleExportExcel}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>Exportar Excel (.xlsx)</span>
+              </button>
+            </div>
+
+            {/* Botón Visible: ¿Cómo funciona? (Ver Tutorial) */}
             <button
-              onClick={handleExportExcel}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all flex items-center gap-1.5"
+              type="button"
+              onClick={() => setIsTourOpen(true)}
+              className="px-3.5 py-2 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Iniciar recorrido guiado por el portal"
             >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>Exportar Excel (.xlsx)</span>
+              <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+              <span>¿Cómo funciona? (Ver Tutorial)</span>
             </button>
 
           </div>
@@ -412,7 +498,7 @@ export const CompanyPortal: React.FC = () => {
       {portalTab === 'dashboard' && (
         <>
           {/* 3. Métricas Clave (KPI Cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div id="tour-metrics" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
         {/* KPI 1: Colaboradores Registrados */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-2">
@@ -490,7 +576,7 @@ export const CompanyPortal: React.FC = () => {
       </div>
 
       {/* 4. Gráficas de Visualización DISC Corporativa */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div id="tour-analytics-disc" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Distribución por Cuadrante DISC */}
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
@@ -931,6 +1017,15 @@ export const CompanyPortal: React.FC = () => {
           onClose={() => setSelectedCollaboratorForModal(null)}
         />
       )}
+
+      {/* Interactive Guided Onboarding Tour for Company Portal */}
+      <GuidedTour
+        steps={companyTourSteps}
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        storageKey="disc_tour_company_viewed_v1"
+        tourName="Portal de Empresa"
+      />
 
     </div>
   );
